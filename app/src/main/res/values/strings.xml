@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="a11y_desc">Opcional. Deixa o filtro do Tubo CRT cobrir tambem a barra de botoes de baixo. O app nao le nem grava nada da sua tela.</string>
+</resources>

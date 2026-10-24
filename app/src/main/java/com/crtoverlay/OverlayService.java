@@ -4,6 +4,9 @@ import android.app.*;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
+import android.util.DisplayMetrics;
+import android.view.Gravity;
 import android.graphics.PixelFormat;
 import android.os.Build;
 import android.os.IBinder;
@@ -16,6 +19,8 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
     private WindowManager wm;
     private CrtView view;
     private SharedPreferences sp;
+    private WindowManager.LayoutParams lp;
+    private boolean viaAcc;
 
     @Override public IBinder onBind(Intent i) { return null; }
 
@@ -29,25 +34,43 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
 
     private void addOverlay() {
         sp = getSharedPreferences("crt", Context.MODE_PRIVATE);
-        wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+        CrtAccessService acc = CrtAccessService.instance;
+        viaAcc = acc != null; // com acessibilidade ligada, o overlay cobre ate a barra de botoes
+        wm = (WindowManager) (viaAcc ? acc : this).getSystemService(WINDOW_SERVICE);
         view = new CrtView(this);
         applyPrefs();
-        WindowManager.LayoutParams lp = new WindowManager.LayoutParams(
+        lp = new WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                viaAcc ? WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY : WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
                 PixelFormat.TRANSLUCENT);
         if (Build.VERSION.SDK_INT >= 28)
             lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+        if (viaAcc) { lp.gravity = Gravity.TOP | Gravity.START; fitRealSize(); }
         wm.addView(view, lp);
         sp.registerOnSharedPreferenceChangeListener(this);
     }
 
+    private void fitRealSize() {
+        DisplayMetrics dm = new DisplayMetrics();
+        wm.getDefaultDisplay().getRealMetrics(dm);
+        lp.width = dm.widthPixels;
+        lp.height = dm.heightPixels;
+    }
+
+    @Override public void onConfigurationChanged(Configuration c) {
+        super.onConfigurationChanged(c);
+        if (view != null && viaAcc && wm != null) {
+            fitRealSize();
+            try { wm.updateViewLayout(view, lp); } catch (Exception ignored) {}
+        }
+    }
+
     private void applyPrefs() {
-        int[] v = new int[6];
-        for (int i = 0; i < 6; i++) v[i] = sp.getInt(CrtView.KEYS[i], CrtView.DEF[i]);
-        view.set(v[0], v[1], v[2], v[3], v[4], v[5]);
+        int[] v = new int[CrtView.KEYS.length];
+        for (int i = 0; i < v.length; i++) v[i] = sp.getInt(CrtView.KEYS[i], CrtView.DEF[i]);
+        view.set(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9]);
     }
 
     @Override public void onSharedPreferenceChanged(SharedPreferences p, String key) {
