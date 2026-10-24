@@ -21,6 +21,7 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
     private SharedPreferences sp;
     private WindowManager.LayoutParams lp;
     private boolean viaAcc;
+    private SidePanel panel;
 
     @Override public IBinder onBind(Intent i) { return null; }
 
@@ -50,6 +51,17 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
         if (viaAcc) { lp.gravity = Gravity.TOP | Gravity.START; fitRealSize(); }
         wm.addView(view, lp);
         sp.registerOnSharedPreferenceChangeListener(this);
+        startPanel();
+    }
+
+    private void startPanel() {
+        if (panel != null || !sp.getBoolean("panel_on", true)) return;
+        panel = new SidePanel(this, wm, viaAcc);
+        panel.show(sp.getInt("panel_y", 25));
+    }
+
+    private void stopPanel() {
+        if (panel != null) { panel.hide(); panel = null; }
     }
 
     private void fitRealSize() {
@@ -74,6 +86,8 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
     }
 
     @Override public void onSharedPreferenceChanged(SharedPreferences p, String key) {
+        if ("panel_on".equals(key)) { if (sp.getBoolean("panel_on", true)) startPanel(); else stopPanel(); return; }
+        if ("panel_y".equals(key)) { if (panel != null) panel.setPos(sp.getInt("panel_y", 25)); return; }
         if (view != null) applyPrefs();
     }
 
@@ -95,6 +109,7 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
     @Override public void onDestroy() {
         running = false;
         if (sp != null) sp.unregisterOnSharedPreferenceChangeListener(this);
+        stopPanel();
         if (view != null) { try { wm.removeView(view); } catch (Exception ignored) {} view = null; }
         super.onDestroy();
     }
