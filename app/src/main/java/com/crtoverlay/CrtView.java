@@ -183,6 +183,6 @@ public class CrtView extends View {
             if (flicker > 0) canvas.drawColor(Color.argb(flicker, 0, 0, 0));
         }
         if (dim > 0) canvas.drawColor(Color.argb(dim * 255 / 100, 0, 0, 0));
-        if (motion > 0) postInvalidateDelayed(33); // ~30 quadros por segundo, pra poupar bateria
+        if (motion > 0) postInvalidateDelayed(40); // 25 quadros por segundo, pra poupar bateria
     }
 }

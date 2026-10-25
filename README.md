@@ -9,9 +9,11 @@ Feito com base nos filtros CRT LIGHT e STRONG do port do jogo *Black* para Andro
 - **Escurecer a tela** de 0 a 90%.
 - **Painel do Bob:** o Bob dança em cima da tela (arraste pra onde quiser, ele sempre olha pro lado do centro). Toque nele e abre:
   - dois **botões de girar** (volume e brilho: girar pra direita diminui, pra esquerda aumenta);
-  - **FOTO** (captura de tela), **APAGAR** (bloqueia a tela), **RAM** (limpa a memória) e **MAX** (modo desempenho).
-- **Lista de jogos:** toque em JOGAR e o app liga o CRT, limpa a RAM (se o modo desempenho estiver ligado) e abre o jogo.
-- Abertura em gif, música de fundo (só dentro do app) e cenário animado.
+  - **FOTO** (captura de tela), **APAGAR** (bloqueia a tela), **RAM** (limpa a memória) e **MAX** (modo desempenho);
+  - **player de música** da pasta que você escolher: toda música colocada na pasta é reconhecida sozinha.
+- **Meus jogos:** o botão **+** do pilar escolhe quais apps aparecem na lista; **JOGAR** liga o CRT, limpa a RAM (se o modo desempenho estiver ligado) e abre o jogo.
+- **Brilho nunca automático:** o app desliga o brilho adaptável e vigia pra ele não voltar sozinho.
+- Abertura em gif, música de fundo (só dentro do app) e cenário animado. A lista de ajustes rola e encaixa em cada prateleira.
 
 ## Instalar (sem computador)
 
@@ -39,7 +41,7 @@ O APK é assinado com a chave `app/tubo-crt.jks`, que é **pública de propósit
 
 ## Arquivos de terceiros (não inclusos neste repositório público)
 
-O Bob (`app/src/main/assets/bob.webp`) e a música (`app/src/main/res/raw/intro_music.mp3`) são opcionais: sem eles o app desenha um Bob simples e fica sem som. Coloque os seus se quiser, desde que você tenha o direito de usá-los.
+O Bob (`app/src/main/assets/bob_sheet.png`) e a música (`app/src/main/res/raw/intro_music.mp3`) são opcionais: sem eles o app desenha um Bob simples e fica sem som. Coloque os seus se quiser, desde que você tenha o direito de usá-los.
 
 ## Créditos
 

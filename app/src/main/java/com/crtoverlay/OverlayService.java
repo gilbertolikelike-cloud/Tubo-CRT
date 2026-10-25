@@ -6,6 +6,10 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
 import android.content.Context;
+import android.database.ContentObserver;
+import android.os.Handler;
+import android.os.Looper;
+import android.provider.Settings;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
@@ -34,6 +38,7 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
     private SharedPreferences sp;
     private PowerManager.WakeLock wakeLock;
     private boolean viaAccessibility;
+    private ContentObserver brightnessGuard;
 
     @Override public IBinder onBind(Intent intent) { return null; }
 
@@ -54,6 +59,7 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
         }
         running = true;
         current = this;
+        startBrightnessGuard();
         return START_STICKY;
     }
 
@@ -126,8 +132,7 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
     private void applyPrefs() {
         int[] v = new int[CrtView.KEYS.length];
         for (int i = 0; i < v.length; i++) v[i] = sp.getInt(CrtView.KEYS[i], CrtView.DEF[i]);
-        int motion = sp.getBoolean("perf_on", false) ? 0 : v[6]; // modo desempenho para a animação
-        view.set(v[0], v[1], v[2], v[3], v[4], v[5], motion, v[7], v[8], v[9]);
+        view.set(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9]);
     }
 
     @Override public void onSharedPreferenceChanged(SharedPreferences prefs, String key) {
@@ -136,12 +141,13 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
             case "panel_on": if (sp.getBoolean("panel_on", true)) startPanel(); else stopPanel(); break;
             case "bob_size": case "bob_alpha": if (panel != null) panel.refreshLook(); break;
             case "perf_on": applyPerformance(true); break;
-            case "panel_fx": case "panel_fy": break;
+            case "panel_fx": case "panel_fy": case "music_tree": case "games_pkgs": case "music_on": break;
+            case "no_auto_bright": Brightness.forceManual(this, sp); break;
             default: applyPrefs(); break;
         }
     }
 
-    /** Modo desempenho: tela e processador acordados, RAM limpa e animação do filtro parada. */
+    /** Modo desempenho: tela e processador acordados e RAM limpa ao ligar. */
     private void applyPerformance(boolean announce) {
         boolean on = sp.getBoolean("perf_on", false);
         if (on && wakeLock == null) {
@@ -162,6 +168,17 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
         else lp.flags &= ~WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON;
         try { wm.updateViewLayout(view, lp); } catch (RuntimeException ignored) { /* janela removida */ }
         applyPrefs();
+    }
+
+    // ---------- brilho automático ----------
+    private void startBrightnessGuard() {
+        if (brightnessGuard != null) return;
+        Brightness.forceManual(this, sp);
+        brightnessGuard = new ContentObserver(new Handler(Looper.getMainLooper())) {
+            @Override public void onChange(boolean selfChange) { Brightness.forceManual(OverlayService.this, sp); }
+        };
+        getContentResolver().registerContentObserver(
+                Settings.System.getUriFor(Settings.System.SCREEN_BRIGHTNESS_MODE), false, brightnessGuard);
     }
 
     // ---------- painel do Bob ----------
@@ -200,6 +217,8 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
         current = null;
         sp.unregisterOnSharedPreferenceChangeListener(this);
         if (wakeLock != null) { wakeLock.release(); wakeLock = null; }
+        if (brightnessGuard != null) { getContentResolver().unregisterContentObserver(brightnessGuard); brightnessGuard = null; }
+        MusicPlayer.get(this).stop();
         removeOverlay();
         super.onDestroy();
     }
