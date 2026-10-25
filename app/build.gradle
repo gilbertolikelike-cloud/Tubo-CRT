@@ -1,14 +1,39 @@
 plugins { id 'com.android.application' }
+
 android {
     namespace 'com.crtoverlay'
     compileSdk 34
+
     defaultConfig {
         applicationId 'com.crtoverlay'
         minSdk 28
         targetSdk 33
-        versionCode 2
-        versionName '2.0'
+        versionCode 3
+        versionName '3.0'
     }
-    compileOptions { sourceCompatibility JavaVersion.VERSION_1_8; targetCompatibility JavaVersion.VERSION_1_8 }
-    buildTypes { release { signingConfig signingConfigs.debug } }
+
+    signingConfigs {
+        // Chave aberta de proposito: com ela fixa, cada versao nova instala POR CIMA da anterior
+        // e o Android nao apaga a permissao de Acessibilidade. Nao serve pra mais nada alem deste app.
+        release {
+            storeFile file('tubo-crt.jks')
+            storePassword 'tubocrt'
+            keyAlias 'tubo'
+            keyPassword 'tubocrt'
+        }
+    }
+
+    buildTypes {
+        release { signingConfig signingConfigs.release }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
+    }
 }
