@@ -8,10 +8,12 @@ Feito com base nos filtros CRT LIGHT e STRONG do port do jogo *Black* para Andro
 - **Filtro CRT por cima de tudo:** scanlines com perfil gaussiano, 4 tipos de máscara de fósforo, cantos arredondados, sombra nas bordas, curva do vidro, movimento das linhas e tremida de brilho.
 - **Escurecer a tela** de 0 a 90%.
 - **Painel do Bob:** o Bob dança em cima da tela (arraste pra onde quiser, ele sempre olha pro lado do centro). Toque nele e abre:
-  - dois **botões de girar** (volume e brilho: girar pra direita diminui, pra esquerda aumenta);
+  - o **céu** no topo: um sol que anda conforme a hora do dia e uma lua de noite;
+  - dois **botões de girar** (volume e brilho: girar pra direita diminui, pra esquerda aumenta) e a **hora em 12h** entre eles;
   - **FOTO** (captura de tela), **APAGAR** (bloqueia a tela), **RAM** (limpa a memória) e **MAX** (modo desempenho);
   - **player de música** da pasta que você escolher: toda música colocada na pasta é reconhecida sozinha.
-- **Meus jogos:** o botão **+** do pilar escolhe quais apps aparecem na lista; **JOGAR** liga o CRT, limpa a RAM (se o modo desempenho estiver ligado) e abre o jogo.
+- **Meus jogos:** o **+** do pilar escolhe quais apps entram na lista e o **🎮** abre ela; **JOGAR** liga o CRT, limpa a RAM (se o modo desempenho estiver ligado) e abre o jogo.
+- **Fluidez do Bob:** troca leveza por suavidade (mistura os quadros quando está alta).
 - **Brilho nunca automático:** o app desliga o brilho adaptável e vigia pra ele não voltar sozinho.
 - Abertura em gif, música de fundo (só dentro do app) e cenário animado. A lista de ajustes rola e encaixa em cada prateleira.
 

@@ -16,6 +16,8 @@ import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
 import android.graphics.RadialGradient;
 import android.graphics.Rect;
 import android.graphics.RectF;
@@ -37,28 +39,37 @@ import android.view.animation.DecelerateInterpolator;
 import android.widget.Toast;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Calendar;
 
 /**
- * O Bob dançando que fica por cima de tudo. Toque nele: abre o painel com dois botões de girar
- * (volume e brilho), quatro botões (captura, apagar a tela, limpar RAM, modo desempenho) e o player
- * de música da pasta que você escolheu. Arraste o Bob pra qualquer lugar; ele olha pro lado do centro.
+ * O Bob dançando que fica por cima de tudo. Toque nele: abre o painel com o céu (sol e lua seguem a hora),
+ * dois botões de girar (volume e brilho), a hora em 12h, quatro botões (captura, apagar a tela, limpar RAM,
+ * modo desempenho) e o player de música da pasta que você escolheu.
+ * Arraste o Bob pra qualquer lugar; ele olha pro lado do centro da tela.
  *
  * Botão de girar: girar pra direita (sentido horário) diminui, pra esquerda aumenta.
- * O Bob é desenhado quadro a quadro (bob_sheet.png), a 8 quadros por segundo, pra pesar pouco.
+ * O Bob é desenhado quadro a quadro (bob_sheet.png). A opção "Fluidez do Bob" troca leveza por suavidade.
  */
 public class BobPanel extends View {
     /** O Bob do arquivo olha pra esquerda. */
     private static final boolean ASSET_FACES_LEFT = true;
-    private static final int SHEET_COLS = 8, SHEET_ROWS = 5, FRAMES = 40, FRAME_MS = 120;
+    private static final int SHEET_COLS = 8, SHEET_ROWS = 8, FRAMES = 64, FRAME_MS = 76;
 
     private static final int M_NONE = 0, M_BOB = 1, M_VOL = 2, M_BRI = 3;
-    private static final int M_BTN = 4;   // 4..7  = FOTO, APAGAR, RAM, MAX
+    private static final int M_BTN = 4;       // 4..7  = FOTO, APAGAR, RAM, MAX
     private static final int M_TRANSPORT = 8; // 8..10 = anterior, tocar/pausar, próxima
     private static final String[] BUTTON_LABEL = {"FOTO", "APAGAR", "RAM", "MAX"};
     private static final int[] BUTTON_RING = {0xFF2EAD5B, 0xFFD94040, 0xFF4F6BFF, 0xFFFFC107};
     private static final float RAINBOW_LEN = 120f;
     private static final long AUTO_CLOSE_MS = 10000;
-    private static final float PANEL_W_DP = 232f, PANEL_H_DP = 300f;
+    private static final float PANEL_W_DP = 232f, PANEL_H_DP = 304f, BORDER_DP = 5f;
+
+    // cor do céu ao longo do dia
+    private static final float[] SKY_HOURS = {0f, 5f, 6.5f, 8f, 16f, 17.5f, 19f, 21f, 24f};
+    private static final int[] SKY_COLORS = {0xFF0B1030, 0xFF1B2350, 0xFFFF9966, 0xFF7EC8F8, 0xFF7EC8F8,
+            0xFFFF8A5C, 0xFF2B2A5E, 0xFF0B1030, 0xFF0B1030};
+    private static final float[] STAR_X = {0.10f, 0.22f, 0.35f, 0.50f, 0.63f, 0.80f, 0.92f};
+    private static final float[] STAR_Y = {0.30f, 0.65f, 0.25f, 0.70f, 0.35f, 0.60f, 0.28f};
 
     private final Context ctx;
     private final WindowManager wm;
@@ -72,6 +83,7 @@ public class BobPanel extends View {
     private final long t0 = SystemClock.uptimeMillis();
     private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint bobPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+    private final Paint blendPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private final RectF r = new RectF();
     private final RectF dst = new RectF();
     private final Rect src = new Rect();
@@ -83,7 +95,7 @@ public class BobPanel extends View {
         @Override public void run() {
             if (!added) return;
             invalidate();
-            handler.postDelayed(this, FRAME_MS);
+            handler.postDelayed(this, tickInterval());
         }
     };
 
@@ -111,6 +123,7 @@ public class BobPanel extends View {
         slop = ViewConfiguration.get(ctx).getScaledTouchSlop();
         audio = (AudioManager) ctx.getSystemService(Context.AUDIO_SERVICE);
         music = MusicPlayer.get(ctx);
+        blendPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.ADD)); // soma o segundo quadro por cima do primeiro
         int[] colors = new int[7];
         for (int i = 0; i < colors.length; i++) colors[i] = Color.HSVToColor(new float[]{i * 60f % 360f, 1f, 1f});
         rainbow = new LinearGradient(0, 0, RAINBOW_LEN * d, 0, colors, null, Shader.TileMode.REPEAT);
@@ -129,6 +142,12 @@ public class BobPanel extends View {
             frameW = sheet.getWidth() / SHEET_COLS;
             frameH = sheet.getHeight() / SHEET_ROWS;
         }
+    }
+
+    /** Quanto menor o intervalo, mais suave (e mais pesado). 0% = 160 ms, 100% = 40 ms. */
+    private long tickInterval() {
+        int f = Math.max(0, Math.min(100, sp.getInt("bob_fluid", 60)));
+        return 160 - 120L * f / 100;
     }
 
     // ---------- ciclo de vida ----------
@@ -156,7 +175,7 @@ public class BobPanel extends View {
         } catch (RuntimeException e) {
             return;
         }
-        handler.postDelayed(tick, FRAME_MS);
+        handler.postDelayed(tick, tickInterval());
     }
 
     public void hide() {
@@ -358,7 +377,7 @@ public class BobPanel extends View {
 
     private void onTransport(int i) {
         if (music.count() == 0) {
-            Toast.makeText(ctx, "Escolha a pasta de músicas no app (botão do pilar)", Toast.LENGTH_LONG).show();
+            Toast.makeText(ctx, "Escolha a pasta de músicas no app (botão ▦ do pilar)", Toast.LENGTH_LONG).show();
             return;
         }
         if (i == 0) music.previous(); else if (i == 1) music.toggle(); else music.next();
@@ -376,12 +395,12 @@ public class BobPanel extends View {
     }
 
     // ---------- geometria das peças (dentro do painel, em px) ----------
-    private float knobX(int i) { return (i == 0 ? 62 : PANEL_W_DP - 62) * d; }
-    private float knobY() { return 66 * d; }
+    private float knobX(int i) { return (i == 0 ? 56 : PANEL_W_DP - 56) * d; }
+    private float knobY() { return 86 * d; }
     private float buttonX(int i) { return (40 + 53 * i) * d; }
-    private float buttonY() { return 156 * d; }
+    private float buttonY() { return 184 * d; }
     private float transportX(int i) { return (PANEL_W_DP / 2f + (i - 1) * 52) * d; }
-    private float transportY() { return 240 * d; }
+    private float transportY() { return 266 * d; }
 
     private int hit(float x, float y) {
         float bl = bobX - winX, bt = bobY - winY;
@@ -489,18 +508,38 @@ public class BobPanel extends View {
         drawBob(c);
     }
 
+    private void frameRect(int idx) {
+        int left = (idx % SHEET_COLS) * frameW, top = (idx / SHEET_COLS) * frameH;
+        src.set(left, top, left + frameW, top + frameH);
+    }
+
     private void drawBob(Canvas c) {
         float lx = bobX - winX, ly = bobY - winY;
         boolean onRightHalf = bobX + bobW / 2f > screenW / 2f;
         c.save();
         if (onRightHalf != ASSET_FACES_LEFT) c.scale(-1f, 1f, lx + bobW / 2f, ly + bobH / 2f); // olha pro lado do centro
         if (sheet != null) {
-            int idx = (int) (((SystemClock.uptimeMillis() - t0) / FRAME_MS) % FRAMES);
-            int left = (idx % SHEET_COLS) * frameW, top = (idx / SHEET_COLS) * frameH;
-            src.set(left, top, left + frameW, top + frameH);
+            float pos = (SystemClock.uptimeMillis() - t0) / (float) FRAME_MS;
+            int i0 = (int) pos;
+            float f = pos - i0;
+            int i1 = (i0 + 1) % FRAMES;
+            i0 %= FRAMES;
             dst.set(lx, ly, lx + bobW, ly + bobH);
-            bobPaint.setAlpha(Math.round(255 * bobAlpha));
-            c.drawBitmap(sheet, src, dst, bobPaint);
+            if (sp.getInt("bob_fluid", 60) >= 50 && f > 0.04f) {
+                // mistura o quadro atual com o próximo: o movimento fica mais macio
+                int layer = c.saveLayerAlpha(dst, Math.round(255 * bobAlpha));
+                frameRect(i0);
+                bobPaint.setAlpha(Math.round(255 * (1f - f)));
+                c.drawBitmap(sheet, src, dst, bobPaint);
+                frameRect(i1);
+                blendPaint.setAlpha(Math.round(255 * f));
+                c.drawBitmap(sheet, src, dst, blendPaint);
+                c.restoreToCount(layer);
+            } else {
+                frameRect(i0);
+                bobPaint.setAlpha(Math.round(255 * bobAlpha));
+                c.drawBitmap(sheet, src, dst, bobPaint);
+            }
         } else {
             drawFallbackBob(c, lx, ly);
         }
@@ -522,23 +561,129 @@ public class BobPanel extends View {
         c.drawCircle(lx + bobW * 0.62f, ly + bobH * 0.35f, bobW * 0.05f, p);
     }
 
-    /** Desenha o painel com o canto em (0, 0). */
+    /** Desenha o painel com o canto em (0, 0). Só a borda é preta; o resto é a placa de metal. */
     private void drawPanel(Canvas c) {
+        float b = BORDER_DP * d;
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(0xFF0B0B0B); // moldura
+        p.setColor(0xFF0B0B0B); // borda
         r.set(0, 0, panW, panH);
         c.drawRoundRect(r, 16 * d, 16 * d, p);
-        r.set(8 * d, 8 * d, panW - 8 * d, panH - 30 * d); // placa de metal
+        r.set(b, b, panW - b, panH - b); // placa de metal
         p.setShader(new LinearGradient(0, r.top, 0, r.bottom, 0xFFCACACA, 0xFF8A8A8A, Shader.TileMode.CLAMP));
-        c.drawRoundRect(r, 10 * d, 10 * d, p);
+        c.drawRoundRect(r, 11 * d, 11 * d, p);
         p.setShader(null);
 
+        drawSky(c);
         drawKnob(c, knobX(0), knobY(), volume, "VOL", 0xFF4F6BFF);
         drawKnob(c, knobX(1), knobY(), brightness, "BRI", 0xFFFFA833);
+        drawClock(c);
         for (int i = 0; i < 4; i++) drawButton(c, buttonX(i), buttonY(), i);
         drawMusic(c);
         drawSignature(c);
+    }
+
+    // ---------- céu: sol de dia, lua de noite, andando conforme a hora ----------
+    private static int lerpColor(int a, int b, float t) {
+        return Color.argb(255,
+                Math.round(Color.red(a) + (Color.red(b) - Color.red(a)) * t),
+                Math.round(Color.green(a) + (Color.green(b) - Color.green(a)) * t),
+                Math.round(Color.blue(a) + (Color.blue(b) - Color.blue(a)) * t));
+    }
+
+    private static int skyColor(float hour) {
+        for (int i = 0; i < SKY_HOURS.length - 1; i++) {
+            if (hour <= SKY_HOURS[i + 1]) {
+                float t = (hour - SKY_HOURS[i]) / (SKY_HOURS[i + 1] - SKY_HOURS[i]);
+                return lerpColor(SKY_COLORS[i], SKY_COLORS[i + 1], Math.max(0f, Math.min(1f, t)));
+            }
+        }
+        return SKY_COLORS[SKY_COLORS.length - 1];
+    }
+
+    /** 0 = dia claro, 1 = noite fechada (pras estrelas). */
+    private static float nightAmount(float hour) {
+        if (hour < 5f || hour >= 21f) return 1f;
+        if (hour >= 19f) return (hour - 19f) / 2f;
+        if (hour < 7f) return (7f - hour) / 2f;
+        return 0f;
+    }
+
+    private void drawSky(Canvas c) {
+        float b = BORDER_DP * d, left = b, top = b, right = panW - b, bottom = 41 * d;
+        Calendar now = Calendar.getInstance();
+        float hour = now.get(Calendar.HOUR_OF_DAY) + now.get(Calendar.MINUTE) / 60f;
+        int sky = skyColor(hour);
+
+        c.save();
+        r.set(left, top, right, bottom + 12 * d); // topo arredondado como a placa; a base reta vem do clipRect
+        path.reset();
+        path.addRoundRect(r, 11 * d, 11 * d, Path.Direction.CW);
+        c.clipPath(path);
+        c.clipRect(left, top, right, bottom);
+
+        p.setStyle(Paint.Style.FILL);
+        p.setShader(new LinearGradient(0, top, 0, bottom, lerpColor(sky, 0xFF000000, 0.35f), sky, Shader.TileMode.CLAMP));
+        c.drawRect(left, top, right, bottom, p);
+        p.setShader(null);
+
+        float night = nightAmount(hour);
+        if (night > 0.01f) { // estrelas
+            p.setColor(Color.argb(Math.round(220 * night), 255, 255, 255));
+            for (int i = 0; i < STAR_X.length; i++)
+                c.drawCircle(left + (right - left) * STAR_X[i], top + (bottom - top) * STAR_Y[i], 0.9f * d, p);
+        }
+
+        boolean day = hour >= 6f && hour < 18f;
+        float t = day ? (hour - 6f) / 12f : ((hour - 18f + 24f) % 24f) / 12f; // 0 = nascendo, 1 = se pondo
+        float x = left + 12 * d + t * (right - left - 24 * d);
+        float y = bottom - 7 * d - (float) Math.sin(Math.PI * t) * (bottom - top - 18 * d);
+
+        if (day) {
+            p.setShader(new RadialGradient(x, y, 14 * d, 0x99FFE27A, 0x00FFE27A, Shader.TileMode.CLAMP));
+            c.drawCircle(x, y, 14 * d, p);
+            p.setShader(null);
+            p.setColor(0xFFFFD84A);
+            c.drawCircle(x, y, 6.5f * d, p);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(1.4f * d);
+            p.setStrokeCap(Paint.Cap.ROUND);
+            float spin = (SystemClock.uptimeMillis() - t0) / 60f; // raios girando devagar
+            for (int i = 0; i < 8; i++) {
+                double a = Math.toRadians(spin + i * 45);
+                c.drawLine(x + (float) Math.cos(a) * 9 * d, y + (float) Math.sin(a) * 9 * d,
+                        x + (float) Math.cos(a) * 12 * d, y + (float) Math.sin(a) * 12 * d, p);
+            }
+            p.setStyle(Paint.Style.FILL);
+        } else {
+            p.setColor(0xFFF4F1DE);
+            c.drawCircle(x, y, 6.5f * d, p);
+            p.setColor(sky);                     // "morde" a lua pra virar crescente
+            c.drawCircle(x + 3.2f * d, y - 2f * d, 5.6f * d, p);
+        }
+        p.setColor(0x33000000);                  // linha do horizonte
+        c.drawRect(left, bottom - 2.5f * d, right, bottom, p);
+        c.restore();
+    }
+
+    // ---------- hora em 12h, entre os dois botões de girar ----------
+    private void drawClock(Canvas c) {
+        Calendar now = Calendar.getInstance();
+        int h = now.get(Calendar.HOUR); // 0..11
+        if (h == 0) h = 12;
+        int m = now.get(Calendar.MINUTE);
+        String time = h + ":" + (m < 10 ? "0" : "") + m;
+        String period = now.get(Calendar.AM_PM) == Calendar.AM ? "AM" : "PM";
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xFF1E1E1E);
+        p.setTextAlign(Paint.Align.CENTER);
+        p.setFakeBoldText(true);
+        p.setTextSize(15 * d);
+        c.drawText(time, panW / 2f, 130 * d, p);
+        p.setTextSize(9 * d);
+        c.drawText(period, panW / 2f, 142 * d, p);
+        p.setFakeBoldText(false);
     }
 
     private void drawKnob(Canvas c, float cx, float cy, float v, String label, int color) {
@@ -645,10 +790,10 @@ public class BobPanel extends View {
         p.setTextAlign(Paint.Align.CENTER);
         p.setTextSize(10 * d);
         String title = "\u266A " + music.title();
-        float maxW = panW - 36 * d;
+        float maxW = panW - 40 * d;
         int fit = p.breakText(title, true, maxW, null);
         if (fit < title.length()) title = title.substring(0, Math.max(1, fit - 1)) + "\u2026";
-        c.drawText(title, panW / 2f, 208 * d, p);
+        c.drawText(title, panW / 2f, 238 * d, p);
 
         for (int i = 0; i < 3; i++) {
             float cx = transportX(i), cy = transportY(), rad = 17 * d;
@@ -675,30 +820,39 @@ public class BobPanel extends View {
                 path.lineTo(cx - 4 * d, cy + 7 * d);
                 path.close();
                 c.drawPath(path, p);
-            } else {                         // anterior (0) e próxima (2)
-                float s = i == 0 ? -1f : 1f;
-                path.moveTo(cx + s * 7 * d, cy - 6 * d);
-                path.lineTo(cx - s * 2 * d, cy);
-                path.lineTo(cx + s * 7 * d, cy + 6 * d);
+            } else {
+                // anterior |◀ (barra na esquerda, ponta pra esquerda) e próxima ▶| (espelhada)
+                float s = i == 0 ? 1f : -1f;
+                path.moveTo(cx + s * 6 * d, cy - 6 * d);
+                path.lineTo(cx - s * 4 * d, cy);
+                path.lineTo(cx + s * 6 * d, cy + 6 * d);
                 path.close();
                 c.drawPath(path, p);
-                r.set(cx - s * 7 * d - 1.2f * d, cy - 6 * d, cx - s * 7 * d + 1.2f * d, cy + 6 * d);
+                float bar = cx - s * 7 * d;
+                r.set(bar - 1.2f * d, cy - 6 * d, bar + 1.2f * d, cy + 6 * d);
                 c.drawRect(r, p);
             }
         }
     }
 
-    /** "By - Gilberto" em RGB, na faixa preta de baixo. */
+    /** "By - Gilberto" em RGB, com contorno preto pra aparecer em cima do metal. */
     private void drawSignature(Canvas c) {
         float t = (SystemClock.uptimeMillis() - t0) / 1000f;
         rainbowMatrix.setTranslate((t * 70f * d) % (RAINBOW_LEN * d), 0);
         rainbow.setLocalMatrix(rainbowMatrix);
-        p.setShader(rainbow);
-        p.setStyle(Paint.Style.FILL);
+        float x = panW / 2f, y = panH - 9 * d;
         p.setTextAlign(Paint.Align.CENTER);
         p.setTextSize(12 * d);
         p.setFakeBoldText(true);
-        c.drawText("By - Gilberto", panW / 2f, panH - 10 * d, p);
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(3 * d);
+        p.setStrokeJoin(Paint.Join.ROUND);
+        p.setColor(0xFF0B0B0B);
+        c.drawText("By - Gilberto", x, y, p);
+        p.setStyle(Paint.Style.FILL);
+        p.setShader(rainbow);
+        c.drawText("By - Gilberto", x, y, p);
         p.setShader(null);
         p.setFakeBoldText(false);
     }

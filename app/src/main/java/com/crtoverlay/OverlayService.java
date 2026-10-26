@@ -28,7 +28,8 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
     static volatile OverlayService current;
 
     private static final String ACTION_STOP = "com.crtoverlay.STOP";
-    private static final String CHANNEL_ID = "crt";
+    /** Canal mínimo: sem som, sem ícone na barra de cima. Dá pra desativar sem desligar o filtro. */
+    static final String CHANNEL_ID = "crt_quiet";
     private static final int NOTIFICATION_ID = 1;
 
     private WindowManager wm;
@@ -141,7 +142,7 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
             case "panel_on": if (sp.getBoolean("panel_on", true)) startPanel(); else stopPanel(); break;
             case "bob_size": case "bob_alpha": if (panel != null) panel.refreshLook(); break;
             case "perf_on": applyPerformance(true); break;
-            case "panel_fx": case "panel_fy": case "music_tree": case "games_pkgs": case "music_on": break;
+            case "panel_fx": case "panel_fy": case "music_tree": case "games_pkgs": case "music_on": case "bob_fluid": break;
             case "no_auto_bright": Brightness.forceManual(this, sp); break;
             default: applyPrefs(); break;
         }
@@ -196,9 +197,17 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
     }
 
     // ---------- notificação ----------
+    static void ensureChannel(Context ctx) {
+        NotificationManager nm = ctx.getSystemService(NotificationManager.class);
+        nm.deleteNotificationChannel("crt"); // canal antigo, que era mais chamativo
+        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, "Tubo CRT (pode desativar)", NotificationManager.IMPORTANCE_MIN);
+        channel.setDescription("Aviso fixo que o Android exige enquanto o filtro está ligado. Dá pra desativar sem desligar o filtro.");
+        channel.setShowBadge(false);
+        nm.createNotificationChannel(channel);
+    }
+
     private Notification buildNotification() {
-        NotificationChannel channel = new NotificationChannel(CHANNEL_ID, getString(R.string.app_name), NotificationManager.IMPORTANCE_LOW);
-        getSystemService(NotificationManager.class).createNotificationChannel(channel);
+        ensureChannel(this);
         PendingIntent open = PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
         PendingIntent stop = PendingIntent.getService(this, 1,
                 new Intent(this, OverlayService.class).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE);
@@ -208,6 +217,9 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
                 .setSmallIcon(android.R.drawable.ic_menu_view)
                 .setContentIntent(open)
                 .setOngoing(true)
+                .setShowWhen(false)
+                .setCategory(Notification.CATEGORY_SERVICE)
+                .setVisibility(Notification.VISIBILITY_SECRET)
                 .addAction(new Notification.Action.Builder(null, "Desligar", stop).build())
                 .build();
     }

@@ -12,6 +12,7 @@ import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Outline;
 import android.graphics.ImageDecoder;
 import android.graphics.Paint;
 import android.graphics.RectF;
@@ -30,6 +31,7 @@ import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.ViewOutlineProvider;
 import android.widget.Button;
 import android.widget.CompoundButton;
 import android.widget.FrameLayout;
@@ -78,7 +80,8 @@ public class MainActivity extends Activity {
     private FrameLayout stage;
     private SnapScrollView scroller;
     private LinearLayout list;
-    private IconButton optionsButton, addButton;
+    private IconButton optionsButton, addButton, gamesButton;
+    private ImageView paper;
     private ImageView bg, intro;
     private MediaPlayer appMusic;
     private boolean introDone = false;
@@ -104,12 +107,34 @@ public class MainActivity extends Activity {
         scroller.addView(list, new FrameLayout.LayoutParams(-1, -2));
         scroller.setVisibility(View.INVISIBLE); // só aparece quando o cenário carregar, pra alinhar nas prateleiras
         stage.addView(scroller);
+
+        // pergaminho no lugar da coluna branca do cenário; os botões do pilar ficam em cima dele
+        paper = new ImageView(this);
+        paper.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        paper.setBackgroundColor(0xFFC9A15B);
+        paper.setImageDrawable(load("parchment.jpg"));
+        paper.setClipToOutline(true);
+        paper.setOutlineProvider(new ViewOutlineProvider() {
+            @Override public void getOutline(View v, Outline outline) {
+                outline.setRoundRect(0, 0, v.getWidth(), v.getHeight(), 8 * dens);
+            }
+        });
+        GradientDrawable paperEdge = new GradientDrawable();
+        paperEdge.setColor(Color.TRANSPARENT);
+        paperEdge.setStroke(Math.round(2 * dens), 0xAA3A200A);
+        paperEdge.setCornerRadius(8 * dens);
+        paper.setForeground(paperEdge);
+        stage.addView(paper);
+
         optionsButton = new IconButton(this, IconButton.GRID);
         addButton = new IconButton(this, IconButton.PLUS);
+        gamesButton = new IconButton(this, IconButton.PAD);
         optionsButton.setOnClickListener(v -> showOptions());
         addButton.setOnClickListener(v -> chooseGames());
+        gamesButton.setOnClickListener(v -> showGames());
         stage.addView(optionsButton);
         stage.addView(addButton);
+        stage.addView(gamesButton);
         stage.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> layoutStage());
 
         intro = new ImageView(this);
@@ -192,15 +217,21 @@ public class MainActivity extends Activity {
         scroller.setPitch(pitchPx);
         applyRowSizes();
 
-        int size = Math.round(52 * dens);
-        if (land) { // pilar: coluna branca à esquerda
+        // pergaminho cobrindo o pilar branco: coluna na horizontal, faixa de cima na vertical
+        if (land) place(paper, Math.round(dx + sw * 0.097f), Math.round(dy) - 2, Math.round(sw * 0.077f), Math.round(sh) + 4);
+        else place(paper, Math.round(dx) - 2, Math.round(dy + sh * 0.102f), Math.round(sw) + 4, Math.round(sh * 0.067f));
+
+        int size = land ? Math.round(52 * dens) : Math.min(Math.round(52 * dens), Math.round(sh * 0.067f * 0.78f));
+        if (land) {
             int cx = Math.round(dx + sw * 0.135f - size / 2f), y = Math.round(dy + sh * 0.14f);
             place(optionsButton, cx, y, size, size);
             place(addButton, cx, y + Math.round(size * 1.35f), size, size);
-        } else {    // pilar: faixa de cima
-            int x = Math.round(dx + sw * 0.12f), y = Math.round(dy + sh * 0.025f);
+            place(gamesButton, cx, y + Math.round(size * 2.7f), size, size);
+        } else {
+            int x = Math.round(dx + sw * 0.12f), y = Math.round(dy + sh * 0.102f + (sh * 0.067f - size) / 2f);
             place(optionsButton, x, y, size, size);
             place(addButton, x + Math.round(size * 1.4f), y, size, size);
+            place(gamesButton, x + Math.round(size * 2.8f), y, size, size);
         }
     }
 
@@ -247,8 +278,7 @@ public class MainActivity extends Activity {
         addRow(slider("Sombra nos cantos", "corner", 0, 40, CrtView.DEF[5], ""));
         addRow(slider("Tamanho do Bob", "bob_size", 0, 100, 40, "%"));
         addRow(slider("Transparência do Bob (100 = sólido)", "bob_alpha", 10, 100, 100, "%"));
-        addRow(title(games.isEmpty() ? "MEUS JOGOS: toque no + do pilar pra escolher" : "MEUS JOGOS"));
-        for (Game g : games) addRow(gameRow(g));
+        addRow(slider("Fluidez do Bob (0 = leve, 100 = suave)", "bob_fluid", 0, 100, 60, ""));
         applyRowSizes();
         refresh();
         final int y = keep;
@@ -278,16 +308,6 @@ public class MainActivity extends Activity {
         b.setTextSize(15);
         b.setBackground(box(0x40FFFFFF, 0xAA1E1208));
         return b;
-    }
-
-    private TextView title(String text) {
-        TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextColor(INK);
-        t.setTypeface(null, Typeface.BOLD);
-        t.setTextSize(15);
-        t.setGravity(Gravity.CENTER);
-        return t;
     }
 
     private Button actionButton(final String key) {
@@ -343,28 +363,6 @@ public class MainActivity extends Activity {
             row.addView(text, new LinearLayout.LayoutParams(-1, -2));
             row.addView(bar, new LinearLayout.LayoutParams(-1, -2));
         }
-        return row;
-    }
-
-    private View gameRow(final Game g) {
-        LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        int pad = Math.round(8 * dens), icon = Math.round(40 * dens);
-        row.setPadding(pad, pad / 2, pad, pad / 2);
-        ImageView iv = new ImageView(this);
-        iv.setImageDrawable(g.icon);
-        row.addView(iv, new LinearLayout.LayoutParams(icon, icon));
-        TextView name = new TextView(this);
-        name.setText(g.label);
-        name.setTextColor(INK);
-        name.setTypeface(null, Typeface.BOLD);
-        name.setTextSize(15);
-        name.setSingleLine(true);
-        name.setPadding(pad, 0, pad, 0);
-        row.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
-        Button play = flat("JOGAR");
-        play.setOnClickListener(v -> play(g));
-        row.addView(play, new LinearLayout.LayoutParams(-2, -1));
         return row;
     }
 
@@ -433,6 +431,7 @@ public class MainActivity extends Activity {
                 v -> startActivity(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:" + getPackageName())))));
         box.addView(dialogButton("Pasta de músicas: " + folderName(), v -> pickMusicFolder()));
         box.addView(dialogButton("Limpar a RAM agora", v -> cleanRam()));
+        box.addView(dialogButton("Esconder a notificação (abre as configurações)", v -> openNotificationSettings()));
 
         ScrollView sv = new ScrollView(this);
         sv.addView(box);
@@ -508,7 +507,65 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    private void openNotificationSettings() {
+        OverlayService.ensureChannel(this); // o canal precisa existir pra aparecer nas configurações
+        try {
+            startActivity(new Intent(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName())
+                    .putExtra(Settings.EXTRA_CHANNEL_ID, OverlayService.CHANNEL_ID));
+        } catch (RuntimeException e) {
+            startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName()));
+        }
+    }
+
     // ---------- meus jogos ----------
+    /** O 🎮 do pilar: abre a lista dos apps que você escolheu no +. */
+    private void showGames() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        int pad = Math.round(16 * dens);
+        box.setPadding(pad, pad / 2, pad, pad / 2);
+        final AlertDialog[] dialog = new AlertDialog[1];
+        if (games.isEmpty()) {
+            TextView empty = new TextView(this);
+            empty.setText("Você ainda não escolheu nenhum jogo.\nToque no + do pilar pra escolher.");
+            empty.setTextSize(16);
+            box.addView(empty);
+        }
+        for (final Game g : games) {
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            int icon = Math.round(44 * dens);
+            ImageView iv = new ImageView(this);
+            Drawable.ConstantState cs = g.icon.getConstantState();
+            iv.setImageDrawable(cs != null ? cs.newDrawable() : g.icon);
+            row.addView(iv, new LinearLayout.LayoutParams(icon, icon));
+            TextView name = new TextView(this);
+            name.setText(g.label);
+            name.setTextSize(16);
+            name.setSingleLine(true);
+            name.setPadding(pad / 2, 0, pad / 2, 0);
+            row.addView(name, new LinearLayout.LayoutParams(0, -2, 1f));
+            Button go = new Button(this);
+            go.setText("JOGAR");
+            go.setOnClickListener(v -> {
+                if (dialog[0] != null) dialog[0].dismiss();
+                play(g);
+            });
+            row.addView(go, new LinearLayout.LayoutParams(-2, -2));
+            box.addView(row);
+        }
+        ScrollView sv = new ScrollView(this);
+        sv.addView(box);
+        dialog[0] = new AlertDialog.Builder(this)
+                .setTitle("Meus jogos")
+                .setView(sv)
+                .setPositiveButton("Fechar", null)
+                .setNeutralButton("+ Escolher", (dlg, which) -> chooseGames())
+                .show();
+    }
+
     private void loadGames() {
         final Set<String> chosen = new HashSet<>(sp.getStringSet("games_pkgs", Collections.<String>emptySet()));
         new Thread(() -> {
@@ -523,10 +580,7 @@ public class MainActivity extends Activity {
                 }
             }
             Collections.sort(out, (a, b) -> a.label.compareToIgnoreCase(b.label));
-            runOnUiThread(() -> {
-                games = out;
-                buildList();
-            });
+            runOnUiThread(() -> games = out);
         }).start();
     }
 
@@ -650,7 +704,7 @@ public class MainActivity extends Activity {
 
     // ---------- botão redondo do pilar ----------
     private static final class IconButton extends View {
-        static final int GRID = 0, PLUS = 1;
+        static final int GRID = 0, PLUS = 1, PAD = 2;
         private final int kind;
         private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final RectF r = new RectF();
@@ -687,11 +741,25 @@ public class MainActivity extends Activity {
                         c.drawRoundRect(r, s * 0.2f, s * 0.2f, p);
                     }
                 }
-            } else {
+            } else if (kind == PLUS) {
                 p.setStrokeWidth(rad * 0.14f);
                 p.setStrokeCap(Paint.Cap.ROUND);
                 c.drawLine(cx - rad * 0.4f, cy, cx + rad * 0.4f, cy, p);
                 c.drawLine(cx, cy - rad * 0.4f, cx, cy + rad * 0.4f, p);
+            } else { // controle de videogame
+                p.setStyle(Paint.Style.FILL);
+                r.set(cx - rad * 0.58f, cy - rad * 0.30f, cx + rad * 0.58f, cy + rad * 0.32f);
+                c.drawRoundRect(r, rad * 0.30f, rad * 0.30f, p);
+                p.setColor(isPressed() ? 0xEE3A3A3A : 0xDD141414);
+                p.setStyle(Paint.Style.STROKE);
+                p.setStrokeCap(Paint.Cap.ROUND);
+                p.setStrokeWidth(rad * 0.10f);
+                float padX = cx - rad * 0.30f, padY = cy + rad * 0.01f;
+                c.drawLine(padX - rad * 0.12f, padY, padX + rad * 0.12f, padY, p);
+                c.drawLine(padX, padY - rad * 0.12f, padX, padY + rad * 0.12f, p);
+                p.setStyle(Paint.Style.FILL);
+                c.drawCircle(cx + rad * 0.24f, cy + rad * 0.05f, rad * 0.07f, p);
+                c.drawCircle(cx + rad * 0.37f, cy - rad * 0.06f, rad * 0.07f, p);
             }
         }
     }
