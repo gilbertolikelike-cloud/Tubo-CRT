@@ -1,0 +1,29 @@
+{
+ "day": {
+  "file": "bob_day.png",
+  "cols": 12,
+  "rows": 10,
+  "frames": 120,
+  "ms": 61.0,
+  "aspect": 1.1069,
+  "scale": 1.0
+ },
+ "night": {
+  "file": "bob_night.png",
+  "cols": 10,
+  "rows": 6,
+  "frames": 60,
+  "ms": 79.3,
+  "aspect": 1.0718,
+  "scale": 1.9
+ },
+ "saiyan": {
+  "file": "bob_saiyan.png",
+  "cols": 8,
+  "rows": 6,
+  "frames": 48,
+  "ms": 99.2,
+  "aspect": 0.9266,
+  "scale": 1.5
+ }
+}

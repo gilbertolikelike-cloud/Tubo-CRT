@@ -9,8 +9,8 @@
     <uses-permission android:name="android.permission.WRITE_SETTINGS"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES"/>
-    <!-- Lista de jogos instalados -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"/>
+    <!-- Clima do painel (só o nome da cidade vai pra internet) -->
+    <uses-permission android:name="android.permission.INTERNET"/>
 
     <queries>
         <intent>

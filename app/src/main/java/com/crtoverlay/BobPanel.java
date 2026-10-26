@@ -9,6 +9,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.BitmapShader;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.LinearGradient;
@@ -40,20 +41,25 @@ import android.widget.Toast;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Calendar;
+import java.util.HashMap;
+import java.util.Map;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 /**
- * O Bob dançando que fica por cima de tudo. Toque nele: abre o painel com o céu (sol e lua seguem a hora),
- * dois botões de girar (volume e brilho), a hora em 12h, quatro botões (captura, apagar a tela, limpar RAM,
- * modo desempenho) e o player de música da pasta que você escolheu.
- * Arraste o Bob pra qualquer lugar; ele olha pro lado do centro da tela.
+ * O Bob que fica por cima de tudo. Toque nele: abre o painel de pergaminho com o céu (sol, lua, nuvens e chuva
+ * seguem a hora e o clima), a temperatura, dois botões de girar (volume e brilho), a hora em 12h, quatro botões
+ * (captura, apagar a tela, limpar RAM, modo desempenho) e o player de música da sua pasta.
+ *
+ * O Bob muda sozinho: de dia é o Bob com sombra, de noite ele dança na discoteca e com o modo desempenho ligado
+ * vira Super Saiyajin. Arraste ele pra qualquer lugar: ele olha pro lado do centro da tela e fica de cabeça pra
+ * baixo quando está lá em cima.
  *
  * Botão de girar: girar pra direita (sentido horário) diminui, pra esquerda aumenta.
- * O Bob é desenhado quadro a quadro (bob_sheet.png). A opção "Fluidez do Bob" troca leveza por suavidade.
  */
 public class BobPanel extends View {
-    /** O Bob do arquivo olha pra esquerda. */
+    /** Os desenhos do Bob olham pra esquerda. */
     private static final boolean ASSET_FACES_LEFT = true;
-    private static final int SHEET_COLS = 8, SHEET_ROWS = 8, FRAMES = 64, FRAME_MS = 76;
 
     private static final int M_NONE = 0, M_BOB = 1, M_VOL = 2, M_BRI = 3;
     private static final int M_BTN = 4;       // 4..7  = FOTO, APAGAR, RAM, MAX
@@ -63,6 +69,7 @@ public class BobPanel extends View {
     private static final float RAINBOW_LEN = 120f;
     private static final long AUTO_CLOSE_MS = 10000;
     private static final float PANEL_W_DP = 232f, PANEL_H_DP = 304f, BORDER_DP = 5f;
+    private static final float KNOB_R = 32f, BUTTON_R = 20f, TRANSPORT_R = 17f; // dp
 
     // cor do céu ao longo do dia
     private static final float[] SKY_HOURS = {0f, 5f, 6.5f, 8f, 16f, 17.5f, 19f, 21f, 24f};
@@ -70,6 +77,13 @@ public class BobPanel extends View {
             0xFFFF8A5C, 0xFF2B2A5E, 0xFF0B1030, 0xFF0B1030};
     private static final float[] STAR_X = {0.10f, 0.22f, 0.35f, 0.50f, 0.63f, 0.80f, 0.92f};
     private static final float[] STAR_Y = {0.30f, 0.65f, 0.25f, 0.70f, 0.35f, 0.60f, 0.28f};
+
+    /** Uma das folhas de quadros do Bob (descrita em bob_meta.json). */
+    private static final class Variant {
+        String file;
+        int cols, rows, frames;
+        float ms, aspect, scale;
+    }
 
     private final Context ctx;
     private final WindowManager wm;
@@ -88,19 +102,28 @@ public class BobPanel extends View {
     private final RectF dst = new RectF();
     private final Rect src = new Rect();
     private final Path path = new Path();
+    private final Matrix matrix = new Matrix();
     private final Matrix rainbowMatrix = new Matrix();
-    private final Shader rainbow;
+    private final Matrix iridescentMatrix = new Matrix();
+    private final Shader rainbow, iridescent, knobFace, buttonFace, transportFace, sunGlow;
+    private final Map<String, Variant> variants = new HashMap<>();
     private final Runnable autoClose = () -> setOpen(false, true);
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             if (!added) return;
+            ensureVariant();
             invalidate();
             handler.postDelayed(this, tickInterval());
         }
     };
 
-    private Bitmap sheet;
-    private int frameW, frameH;
+    private Bitmap sheet, paperBitmap;
+    private BitmapShader plate;
+    private Variant variant;
+    private String currentVariant = "";
+    private boolean loading;
+    private int frameW, frameH, skyShaderColor;
+    private Shader skyShader;
     private WindowManager.LayoutParams lp;
     private ValueAnimator animator;
     private boolean open, added, askedPermission, dragging;
@@ -127,27 +150,100 @@ public class BobPanel extends View {
         int[] colors = new int[7];
         for (int i = 0; i < colors.length; i++) colors[i] = Color.HSVToColor(new float[]{i * 60f % 360f, 1f, 1f});
         rainbow = new LinearGradient(0, 0, RAINBOW_LEN * d, 0, colors, null, Shader.TileMode.REPEAT);
-        loadSheet();
+        // furta-cor: ciano, violeta, rosa, dourado e verde-menta, deslizando como numa bolha de sabão
+        iridescent = new LinearGradient(0, 0, 90 * d, 0, new int[]{0xFF00E5FF, 0xFF7C4DFF, 0xFFFF4DD2, 0xFFFFD54F, 0xFF69F0AE, 0xFF00E5FF},
+                null, Shader.TileMode.REPEAT);
+        // gradientes criados uma vez só, desenhados com o canvas deslocado (evita lixo a 60 quadros por segundo)
+        knobFace = new RadialGradient(-9 * d, -11 * d, KNOB_R * 1.5f * d, 0xFFF6F6F6, 0xFF7C7C7C, Shader.TileMode.CLAMP);
+        buttonFace = new RadialGradient(-6 * d, -6 * d, 30 * d, 0xFFF5F5F5, 0xFF9C9C9C, Shader.TileMode.CLAMP);
+        transportFace = new RadialGradient(-5 * d, -5 * d, 24 * d, 0xFFF5F5F5, 0xFF9C9C9C, Shader.TileMode.CLAMP);
+        sunGlow = new RadialGradient(0, 0, 14 * d, 0x99FFE27A, 0x00FFE27A, Shader.TileMode.CLAMP);
+        loadMeta();
+        loadPaper();
     }
 
-    private void loadSheet() {
-        try (InputStream in = ctx.getAssets().open("bob_sheet.png")) {
+    // ---------- arquivos ----------
+    private void loadMeta() {
+        try (InputStream in = ctx.getAssets().open("bob_meta.json")) {
+            byte[] buf = new byte[in.available()];
+            int n = in.read(buf);
+            JSONObject root = new JSONObject(new String(buf, 0, Math.max(0, n), "UTF-8"));
+            java.util.Iterator<String> keys = root.keys();
+            while (keys.hasNext()) {
+                String key = keys.next();
+                JSONObject o = root.getJSONObject(key);
+                Variant v = new Variant();
+                v.file = o.getString("file");
+                v.cols = o.getInt("cols");
+                v.rows = o.getInt("rows");
+                v.frames = o.getInt("frames");
+                v.ms = (float) o.getDouble("ms");
+                v.aspect = (float) o.getDouble("aspect");
+                v.scale = (float) o.getDouble("scale");
+                variants.put(key, v);
+            }
+        } catch (IOException | JSONException | RuntimeException ignored) {
+            // sem os arquivos do Bob, desenha um Bob simples
+        }
+    }
+
+    private void loadPaper() {
+        try (InputStream in = ctx.getAssets().open("parchment.jpg")) {
+            paperBitmap = BitmapFactory.decodeStream(in);
+            if (paperBitmap != null) plate = new BitmapShader(paperBitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
+        } catch (IOException | RuntimeException ignored) {
+            paperBitmap = null; // sem o pergaminho, usa metal cinza
+        }
+    }
+
+    private Bitmap decodeSheet(String file) {
+        try (InputStream in = ctx.getAssets().open(file)) {
             BitmapFactory.Options o = new BitmapFactory.Options();
             o.inScaled = false;
-            sheet = BitmapFactory.decodeStream(in, null, o);
+            return BitmapFactory.decodeStream(in, null, o);
         } catch (IOException | RuntimeException e) {
-            sheet = null; // sem o arquivo, desenha um Bob simples
-        }
-        if (sheet != null) {
-            frameW = sheet.getWidth() / SHEET_COLS;
-            frameH = sheet.getHeight() / SHEET_ROWS;
+            return null;
         }
     }
 
-    /** Quanto menor o intervalo, mais suave (e mais pesado). 0% = 160 ms, 100% = 40 ms. */
+    // ---------- qual Bob mostrar ----------
+    private static boolean isNight() {
+        int h = Calendar.getInstance().get(Calendar.HOUR_OF_DAY);
+        return h < 6 || h >= 18;
+    }
+
+    /** Modo desempenho: Super Saiyajin. Senão, de noite dança na discoteca; de dia é o Bob com sombra. */
+    private String wantedVariant() {
+        if (sp.getBoolean("perf_on", false)) return "saiyan";
+        return isNight() ? "night" : "day";
+    }
+
+    private void ensureVariant() {
+        final String want = wantedVariant();
+        if (want.equals(currentVariant) || loading) return;
+        final Variant v = variants.get(want);
+        if (v == null) { currentVariant = want; return; }
+        loading = true;
+        new Thread(() -> {
+            final Bitmap b = decodeSheet(v.file);
+            handler.post(() -> {
+                loading = false;
+                if (!added) { if (b != null) b.recycle(); return; }
+                Bitmap old = sheet;
+                sheet = b;
+                variant = v;
+                currentVariant = want;
+                if (b != null) { frameW = b.getWidth() / v.cols; frameH = b.getHeight() / v.rows; }
+                if (old != null) old.recycle();
+                refreshLook(); // a proporção muda de um Bob pro outro
+            });
+        }).start();
+    }
+
+    /** Quanto menor o intervalo, mais suave (e mais pesado). 0% = 160 ms (6 fps), 100% = 16 ms (60 fps). */
     private long tickInterval() {
         int f = Math.max(0, Math.min(100, sp.getInt("bob_fluid", 60)));
-        return 160 - 120L * f / 100;
+        return 160 - 144L * f / 100;
     }
 
     // ---------- ciclo de vida ----------
@@ -156,6 +252,7 @@ public class BobPanel extends View {
         refreshScreen();
         fx = sp.getInt("panel_fx", 1000);
         fy = sp.getInt("panel_fy", 250);
+        ensureVariant(); // já começa a carregar o Bob certo (dia, noite ou saiyajin)
         computeLook();
         placeFromFractions();
         lp = new WindowManager.LayoutParams(Math.round(bobW), Math.round(bobH),
@@ -175,7 +272,8 @@ public class BobPanel extends View {
         } catch (RuntimeException e) {
             return;
         }
-        handler.postDelayed(tick, tickInterval());
+        Weather.refreshIfStale(ctx);
+        handler.post(tick);
     }
 
     public void hide() {
@@ -184,9 +282,10 @@ public class BobPanel extends View {
         if (animator != null) animator.cancel();
         try { wm.removeView(this); } catch (RuntimeException ignored) { /* janela já removida */ }
         if (sheet != null) { sheet.recycle(); sheet = null; }
+        if (paperBitmap != null) { paperBitmap.recycle(); paperBitmap = null; plate = null; }
     }
 
-    /** Tamanho ou transparência do Bob mudaram nos ajustes. */
+    /** Tamanho, transparência ou Bob mudaram. */
     public void refreshLook() {
         if (!added) return;
         setOpen(false, false);
@@ -201,6 +300,7 @@ public class BobPanel extends View {
         if (!added) return;
         setOpen(false, false);
         refreshScreen();
+        computeLook();
         placeFromFractions();
         applyWindow(false);
         invalidate();
@@ -214,8 +314,9 @@ public class BobPanel extends View {
     }
 
     private void computeLook() {
-        bobH = (40 + sp.getInt("bob_size", 40)) * d; // 0% = 40 dp, 100% = 140 dp
-        bobW = bobH * (sheet != null ? frameW / (float) frameH : 1f);
+        float scale = variant != null ? variant.scale : 1f;
+        bobH = Math.min((40 + sp.getInt("bob_size", 40)) * d * scale, screenH * 0.6f); // 0% = 40 dp, 100% = 140 dp
+        bobW = bobH * (variant != null ? variant.aspect : 1f);
         bobAlpha = Math.max(0.1f, Math.min(1f, sp.getInt("bob_alpha", 100) / 100f));
     }
 
@@ -283,6 +384,7 @@ public class BobPanel extends View {
             volume = currentVolume();
             brightness = currentBrightness();
             new Thread(music::rescan).start(); // reconhece músicas novas na pasta
+            Weather.refreshIfStale(ctx);
             applyWindow(true);
             animateTo(1f, true);
             handler.postDelayed(autoClose, AUTO_CLOSE_MS);
@@ -369,7 +471,7 @@ public class BobPanel extends View {
                         "RAM livre: " + avail + " MB (+" + freed + " MB)", Toast.LENGTH_LONG).show());
                 break;
             default:
-                sp.edit().putBoolean("perf_on", !sp.getBoolean("perf_on", false)).apply();
+                sp.edit().putBoolean("perf_on", !sp.getBoolean("perf_on", false)).apply(); // o Bob vira saiyajin no próximo quadro
                 invalidate();
                 break;
         }
@@ -509,24 +611,26 @@ public class BobPanel extends View {
     }
 
     private void frameRect(int idx) {
-        int left = (idx % SHEET_COLS) * frameW, top = (idx / SHEET_COLS) * frameH;
+        int left = (idx % variant.cols) * frameW, top = (idx / variant.cols) * frameH;
         src.set(left, top, left + frameW, top + frameH);
     }
 
     private void drawBob(Canvas c) {
-        float lx = bobX - winX, ly = bobY - winY;
+        float lx = bobX - winX, ly = bobY - winY, cx = lx + bobW / 2f, cy = ly + bobH / 2f;
         boolean onRightHalf = bobX + bobW / 2f > screenW / 2f;
+        boolean onTop = bobY + bobH / 2f < screenH * 0.35f; // lá em cima ele fica de cabeça pra baixo
         c.save();
-        if (onRightHalf != ASSET_FACES_LEFT) c.scale(-1f, 1f, lx + bobW / 2f, ly + bobH / 2f); // olha pro lado do centro
-        if (sheet != null) {
-            float pos = (SystemClock.uptimeMillis() - t0) / (float) FRAME_MS;
+        if (onRightHalf != ASSET_FACES_LEFT) c.scale(-1f, 1f, cx, cy); // olha pro lado do centro
+        if (onTop) c.scale(1f, -1f, cx, cy);
+        if (sheet != null && variant != null) {
+            float pos = (SystemClock.uptimeMillis() - t0) / variant.ms;
             int i0 = (int) pos;
             float f = pos - i0;
-            int i1 = (i0 + 1) % FRAMES;
-            i0 %= FRAMES;
+            int i1 = (i0 + 1) % variant.frames;
+            i0 %= variant.frames;
             dst.set(lx, ly, lx + bobW, ly + bobH);
             if (sp.getInt("bob_fluid", 60) >= 50 && f > 0.04f) {
-                // mistura o quadro atual com o próximo: o movimento fica mais macio
+                // mistura o quadro atual com o próximo: o movimento fica macio
                 int layer = c.saveLayerAlpha(dst, Math.round(255 * bobAlpha));
                 frameRect(i0);
                 bobPaint.setAlpha(Math.round(255 * (1f - f)));
@@ -540,7 +644,7 @@ public class BobPanel extends View {
                 bobPaint.setAlpha(Math.round(255 * bobAlpha));
                 c.drawBitmap(sheet, src, dst, bobPaint);
             }
-        } else {
+        } else if (!loading) {
             drawFallbackBob(c, lx, ly);
         }
         c.restore();
@@ -561,7 +665,7 @@ public class BobPanel extends View {
         c.drawCircle(lx + bobW * 0.62f, ly + bobH * 0.35f, bobW * 0.05f, p);
     }
 
-    /** Desenha o painel com o canto em (0, 0). Só a borda é preta; o resto é a placa de metal. */
+    /** Desenha o painel com o canto em (0, 0): borda preta fina e o miolo de pergaminho. */
     private void drawPanel(Canvas c) {
         float b = BORDER_DP * d;
         p.setShader(null);
@@ -569,10 +673,24 @@ public class BobPanel extends View {
         p.setColor(0xFF0B0B0B); // borda
         r.set(0, 0, panW, panH);
         c.drawRoundRect(r, 16 * d, 16 * d, p);
-        r.set(b, b, panW - b, panH - b); // placa de metal
-        p.setShader(new LinearGradient(0, r.top, 0, r.bottom, 0xFFCACACA, 0xFF8A8A8A, Shader.TileMode.CLAMP));
-        c.drawRoundRect(r, 11 * d, 11 * d, p);
-        p.setShader(null);
+
+        r.set(b, b, panW - b, panH - b); // miolo
+        if (plate != null && paperBitmap != null) {
+            float sc = Math.max(r.width() / paperBitmap.getWidth(), r.height() / paperBitmap.getHeight());
+            matrix.setScale(sc, sc);
+            matrix.postTranslate(r.left + (r.width() - paperBitmap.getWidth() * sc) / 2f,
+                    r.top + (r.height() - paperBitmap.getHeight() * sc) / 2f);
+            plate.setLocalMatrix(matrix);
+            p.setShader(plate);
+            c.drawRoundRect(r, 11 * d, 11 * d, p);
+            p.setShader(null);
+            p.setColor(0x1F000000); // um pouco de sombra pro papel não ficar chapado
+            c.drawRoundRect(r, 11 * d, 11 * d, p);
+        } else {
+            p.setShader(new LinearGradient(0, r.top, 0, r.bottom, 0xFFCACACA, 0xFF8A8A8A, Shader.TileMode.CLAMP));
+            c.drawRoundRect(r, 11 * d, 11 * d, p);
+            p.setShader(null);
+        }
 
         drawSky(c);
         drawKnob(c, knobX(0), knobY(), volume, "VOL", 0xFF4F6BFF);
@@ -583,7 +701,7 @@ public class BobPanel extends View {
         drawSignature(c);
     }
 
-    // ---------- céu: sol de dia, lua de noite, andando conforme a hora ----------
+    // ---------- céu: sol de dia, lua de noite, nuvens e chuva conforme o clima ----------
     private static int lerpColor(int a, int b, float t) {
         return Color.argb(255,
                 Math.round(Color.red(a) + (Color.red(b) - Color.red(a)) * t),
@@ -613,57 +731,119 @@ public class BobPanel extends View {
         float b = BORDER_DP * d, left = b, top = b, right = panW - b, bottom = 41 * d;
         Calendar now = Calendar.getInstance();
         float hour = now.get(Calendar.HOUR_OF_DAY) + now.get(Calendar.MINUTE) / 60f;
+        float t = (SystemClock.uptimeMillis() - t0) / 1000f;
         int sky = skyColor(hour);
+        int kind = Weather.kind(sp);
+        if (kind >= Weather.RAIN) sky = lerpColor(sky, 0xFF4A5260, 0.55f); // céu fechado quando chove
 
         c.save();
-        r.set(left, top, right, bottom + 12 * d); // topo arredondado como a placa; a base reta vem do clipRect
+        r.set(left, top, right, bottom + 12 * d); // topo arredondado como o miolo; a base reta vem do clipRect
         path.reset();
         path.addRoundRect(r, 11 * d, 11 * d, Path.Direction.CW);
         c.clipPath(path);
         c.clipRect(left, top, right, bottom);
 
         p.setStyle(Paint.Style.FILL);
-        p.setShader(new LinearGradient(0, top, 0, bottom, lerpColor(sky, 0xFF000000, 0.35f), sky, Shader.TileMode.CLAMP));
+        if (skyShader == null || skyShaderColor != sky) {
+            skyShaderColor = sky;
+            skyShader = new LinearGradient(0, top, 0, bottom, lerpColor(sky, 0xFF000000, 0.35f), sky, Shader.TileMode.CLAMP);
+        }
+        p.setShader(skyShader);
         c.drawRect(left, top, right, bottom, p);
         p.setShader(null);
 
         float night = nightAmount(hour);
-        if (night > 0.01f) { // estrelas
+        if (night > 0.01f && kind < Weather.RAIN) { // estrelas
             p.setColor(Color.argb(Math.round(220 * night), 255, 255, 255));
             for (int i = 0; i < STAR_X.length; i++)
                 c.drawCircle(left + (right - left) * STAR_X[i], top + (bottom - top) * STAR_Y[i], 0.9f * d, p);
         }
 
         boolean day = hour >= 6f && hour < 18f;
-        float t = day ? (hour - 6f) / 12f : ((hour - 18f + 24f) % 24f) / 12f; // 0 = nascendo, 1 = se pondo
-        float x = left + 12 * d + t * (right - left - 24 * d);
-        float y = bottom - 7 * d - (float) Math.sin(Math.PI * t) * (bottom - top - 18 * d);
+        float arc = day ? (hour - 6f) / 12f : ((hour - 18f + 24f) % 24f) / 12f; // 0 = nascendo, 1 = se pondo
+        float x = left + 12 * d + arc * (right - left - 24 * d);
+        float y = bottom - 7 * d - (float) Math.sin(Math.PI * arc) * (bottom - top - 18 * d);
 
         if (day) {
-            p.setShader(new RadialGradient(x, y, 14 * d, 0x99FFE27A, 0x00FFE27A, Shader.TileMode.CLAMP));
-            c.drawCircle(x, y, 14 * d, p);
+            c.save();
+            c.translate(x, y);
+            p.setShader(sunGlow);
+            c.drawCircle(0, 0, 14 * d, p);
             p.setShader(null);
             p.setColor(0xFFFFD84A);
-            c.drawCircle(x, y, 6.5f * d, p);
+            c.drawCircle(0, 0, 6.5f * d, p);
             p.setStyle(Paint.Style.STROKE);
             p.setStrokeWidth(1.4f * d);
             p.setStrokeCap(Paint.Cap.ROUND);
-            float spin = (SystemClock.uptimeMillis() - t0) / 60f; // raios girando devagar
-            for (int i = 0; i < 8; i++) {
-                double a = Math.toRadians(spin + i * 45);
-                c.drawLine(x + (float) Math.cos(a) * 9 * d, y + (float) Math.sin(a) * 9 * d,
-                        x + (float) Math.cos(a) * 12 * d, y + (float) Math.sin(a) * 12 * d, p);
+            for (int i = 0; i < 8; i++) { // raios girando devagar
+                double a = Math.toRadians(t * 16f + i * 45);
+                c.drawLine((float) Math.cos(a) * 9 * d, (float) Math.sin(a) * 9 * d,
+                        (float) Math.cos(a) * 12 * d, (float) Math.sin(a) * 12 * d, p);
             }
             p.setStyle(Paint.Style.FILL);
+            c.restore();
         } else {
             p.setColor(0xFFF4F1DE);
             c.drawCircle(x, y, 6.5f * d, p);
             p.setColor(sky);                     // "morde" a lua pra virar crescente
             c.drawCircle(x + 3.2f * d, y - 2f * d, 5.6f * d, p);
         }
+
+        drawWeather(c, kind, night > 0.5f, left, top, right, bottom, t);
+
+        p.setStyle(Paint.Style.FILL);
         p.setColor(0x33000000);                  // linha do horizonte
         c.drawRect(left, bottom - 2.5f * d, right, bottom, p);
+
+        if (Weather.hasData(sp)) { // temperatura
+            String temp = Math.round(Weather.temperature(sp)) + "\u00B0";
+            p.setTextAlign(Paint.Align.LEFT);
+            p.setTextSize(11 * d);
+            p.setFakeBoldText(true);
+            p.setColor(0x99000000);
+            c.drawText(temp, left + 6 * d + 0.8f * d, top + 13 * d + 0.8f * d, p);
+            p.setColor(0xFFFFFFFF);
+            c.drawText(temp, left + 6 * d, top + 13 * d, p);
+            p.setFakeBoldText(false);
+        }
         c.restore();
+    }
+
+    private void drawCloud(Canvas c, float cx, float cy, float s) {
+        c.drawCircle(cx, cy, s * 0.6f, p);
+        c.drawCircle(cx + s * 0.7f, cy + s * 0.1f, s * 0.5f, p);
+        c.drawCircle(cx - s * 0.7f, cy + s * 0.15f, s * 0.45f, p);
+        r.set(cx - s * 1.1f, cy + s * 0.1f, cx + s * 1.2f, cy + s * 0.65f);
+        c.drawRoundRect(r, s * 0.3f, s * 0.3f, p);
+    }
+
+    private void drawWeather(Canvas c, int kind, boolean night, float left, float top, float right, float bottom, float t) {
+        if (kind == Weather.CLEAR) return;
+        int cloud = kind >= Weather.RAIN ? 0xFF58606C : night ? 0xFF8A93B0 : 0xFFE8EEF5;
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(cloud);
+        float span = right - left + 60 * d;
+        for (int i = 0; i < 3; i++) { // nuvens passando devagar
+            float cx = left + ((t * (5 + 3 * i) * d + i * 75 * d) % span) - 30 * d;
+            drawCloud(c, cx, top + (9 + (i * 7) % 11) * d, (9 + 2 * i) * d);
+        }
+        if (kind >= Weather.RAIN) { // chuva
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(1.1f * d);
+            p.setStrokeCap(Paint.Cap.ROUND);
+            p.setColor(0xCCA8D8FF);
+            float h = bottom - top;
+            for (int i = 0; i < 16; i++) {
+                float x = left + (right - left) * ((i * 0.137f) % 1f);
+                float y = top + ((t * 70 * d + i * 11 * d) % h);
+                c.drawLine(x, y, x - 2 * d, y + 5 * d, p);
+            }
+            p.setStyle(Paint.Style.FILL);
+        }
+        if (kind == Weather.STORM && ((int) (t * 2)) % 7 == 0 && (t * 2) % 1f < 0.25f) { // relâmpago
+            p.setColor(0x66FFFFFF);
+            c.drawRect(left, top, right, bottom, p);
+        }
     }
 
     // ---------- hora em 12h, entre os dois botões de girar ----------
@@ -674,25 +854,41 @@ public class BobPanel extends View {
         int m = now.get(Calendar.MINUTE);
         String time = h + ":" + (m < 10 ? "0" : "") + m;
         String period = now.get(Calendar.AM_PM) == Calendar.AM ? "AM" : "PM";
-        p.setShader(null);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(0xFF1E1E1E);
+        drawIridescent(c, time, panW / 2f, 130 * d, 15 * d);
+        drawIridescent(c, period, panW / 2f, 142 * d, 9 * d);
+    }
+
+    /** Texto furta-cor: as cores deslizam, com contorno escuro pra dar pra ler em cima do papel. */
+    private void drawIridescent(Canvas c, String text, float x, float y, float size) {
+        float t = (SystemClock.uptimeMillis() - t0) / 1000f;
+        iridescentMatrix.setTranslate(t * 38f * d, 0);
+        iridescent.setLocalMatrix(iridescentMatrix);
         p.setTextAlign(Paint.Align.CENTER);
+        p.setTextSize(size);
         p.setFakeBoldText(true);
-        p.setTextSize(15 * d);
-        c.drawText(time, panW / 2f, 130 * d, p);
-        p.setTextSize(9 * d);
-        c.drawText(period, panW / 2f, 142 * d, p);
+        p.setStrokeJoin(Paint.Join.ROUND);
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(size * 0.24f);
+        p.setColor(0xFF1B1B1B);
+        c.drawText(text, x, y, p);
+        p.setStyle(Paint.Style.FILL);
+        p.setShader(iridescent);
+        c.drawText(text, x, y, p);
+        p.setShader(null);
         p.setFakeBoldText(false);
     }
 
     private void drawKnob(Canvas c, float cx, float cy, float v, String label, int color) {
-        float radius = 32 * d, theta = 135f - 270f * v; // theta: graus no sentido horário, 0 = pra cima
+        float radius = KNOB_R * d, theta = 135f - 270f * v; // theta: graus no sentido horário, 0 = pra cima
+        c.save();
+        c.translate(cx, cy);
+        p.setShader(null);
         p.setStyle(Paint.Style.FILL);
         p.setColor(0xFF1B1B1B);
-        c.drawCircle(cx, cy, radius + 5 * d, p);
+        c.drawCircle(0, 0, radius + 5 * d, p);
 
-        r.set(cx - radius - 2.5f * d, cy - radius - 2.5f * d, cx + radius + 2.5f * d, cy + radius + 2.5f * d);
+        r.set(-radius - 2.5f * d, -radius - 2.5f * d, radius + 2.5f * d, radius + 2.5f * d);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(4 * d);
         p.setStrokeCap(Paint.Cap.ROUND);
@@ -702,140 +898,136 @@ public class BobPanel extends View {
         if (v > 0.001f) c.drawArc(r, 45f - 270f * v, 270f * v, false, p);
 
         p.setStyle(Paint.Style.FILL);
-        p.setShader(new RadialGradient(cx - 9 * d, cy - 11 * d, radius * 1.5f, 0xFFF6F6F6, 0xFF7C7C7C, Shader.TileMode.CLAMP));
-        c.drawCircle(cx, cy, radius - 4 * d, p);
+        p.setShader(knobFace);
+        c.drawCircle(0, 0, radius - 4 * d, p);
         p.setShader(null);
         p.setColor(0x22000000);
-        c.drawCircle(cx, cy, radius * 0.55f, p);
+        c.drawCircle(0, 0, radius * 0.55f, p);
 
-        c.save();
-        c.rotate(theta, cx, cy);
+        c.rotate(theta);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(4 * d);
         p.setColor(color);
-        c.drawLine(cx, cy - radius * 0.30f, cx, cy - radius * 0.78f, p);
+        c.drawLine(0, -radius * 0.30f, 0, -radius * 0.78f, p);
         c.restore();
 
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(0xFF2A2A2A);
-        p.setTextAlign(Paint.Align.CENTER);
-        p.setTextSize(10.5f * d);
-        p.setFakeBoldText(true);
-        c.drawText(label + " " + Math.round(v * 100) + "%", cx, cy + radius + 18 * d, p);
-        p.setFakeBoldText(false);
+        drawIridescent(c, label + " " + Math.round(v * 100) + "%", cx, cy + radius + 18 * d, 10.5f * d);
     }
 
     private void drawButton(Canvas c, float cx, float cy, int i) {
         boolean on = i == 3 && sp.getBoolean("perf_on", false);
         int ring = i == 3 && !on ? 0xFF555555 : BUTTON_RING[i];
-        float rad = 20 * d;
+        float rad = BUTTON_R * d;
+        c.save();
+        c.translate(cx, cy);
         p.setStyle(Paint.Style.FILL);
-        p.setShader(new RadialGradient(cx - 6 * d, cy - 6 * d, 30 * d, 0xFFF5F5F5, 0xFF9C9C9C, Shader.TileMode.CLAMP));
-        c.drawCircle(cx, cy, rad, p);
+        p.setShader(buttonFace);
+        c.drawCircle(0, 0, rad, p);
         p.setShader(null);
         p.setStyle(Paint.Style.STROKE);
         p.setStrokeWidth(3 * d);
         p.setStrokeCap(Paint.Cap.ROUND);
         p.setColor(ring);
-        c.drawCircle(cx, cy, rad, p);
+        c.drawCircle(0, 0, rad, p);
 
         p.setColor(0xFF2A2A2A);
         p.setStrokeWidth(2.2f * d);
         switch (i) {
             case 0: // captura: moldura com ponto
-                r.set(cx - 9.5f * d, cy - 7 * d, cx + 9.5f * d, cy + 7 * d);
+                r.set(-9.5f * d, -7 * d, 9.5f * d, 7 * d);
                 c.drawRoundRect(r, 3 * d, 3 * d, p);
                 p.setStyle(Paint.Style.FILL);
-                c.drawCircle(cx, cy, 2.8f * d, p);
+                c.drawCircle(0, 0, 2.8f * d, p);
                 break;
             case 1: // apagar a tela: símbolo de ligar
-                r.set(cx - 8 * d, cy - 8 * d, cx + 8 * d, cy + 8 * d);
+                r.set(-8 * d, -8 * d, 8 * d, 8 * d);
                 c.drawArc(r, -55f, 290f, false, p);
-                c.drawLine(cx, cy - 10.5f * d, cx, cy - 2 * d, p);
+                c.drawLine(0, -10.5f * d, 0, -2 * d, p);
                 break;
             case 2: // RAM: pastilha com pinos
-                r.set(cx - 7.5f * d, cy - 5 * d, cx + 7.5f * d, cy + 5 * d);
+                r.set(-7.5f * d, -5 * d, 7.5f * d, 5 * d);
                 c.drawRoundRect(r, 2 * d, 2 * d, p);
                 for (int k = -1; k <= 1; k++) {
-                    c.drawLine(cx + k * 5 * d, cy - 5 * d, cx + k * 5 * d, cy - 8.5f * d, p);
-                    c.drawLine(cx + k * 5 * d, cy + 5 * d, cx + k * 5 * d, cy + 8.5f * d, p);
+                    c.drawLine(k * 5 * d, -5 * d, k * 5 * d, -8.5f * d, p);
+                    c.drawLine(k * 5 * d, 5 * d, k * 5 * d, 8.5f * d, p);
                 }
                 break;
             default: // desempenho: raio
                 path.reset();
-                path.moveTo(cx + 3 * d, cy - 10.5f * d);
-                path.lineTo(cx - 6 * d, cy + 2 * d);
-                path.lineTo(cx - 0.5f * d, cy + 2 * d);
-                path.lineTo(cx - 3 * d, cy + 10.5f * d);
-                path.lineTo(cx + 6 * d, cy - 2 * d);
-                path.lineTo(cx + 0.5f * d, cy - 2 * d);
+                path.moveTo(3 * d, -10.5f * d);
+                path.lineTo(-6 * d, 2 * d);
+                path.lineTo(-0.5f * d, 2 * d);
+                path.lineTo(-3 * d, 10.5f * d);
+                path.lineTo(6 * d, -2 * d);
+                path.lineTo(0.5f * d, -2 * d);
                 path.close();
                 p.setStyle(Paint.Style.FILL);
                 c.drawPath(path, p);
                 break;
         }
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(0xFF2A2A2A);
-        p.setTextAlign(Paint.Align.CENTER);
-        p.setTextSize(8.5f * d);
-        p.setFakeBoldText(true);
-        c.drawText(BUTTON_LABEL[i], cx, cy + rad + 11 * d, p);
-        p.setFakeBoldText(false);
+        c.restore();
+
+        drawIridescent(c, BUTTON_LABEL[i], cx, cy + rad + 11 * d, 8.5f * d);
     }
 
     /** Nome da música e botões de anterior, tocar/pausar e próxima. */
     private void drawMusic(Canvas c) {
+        p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(0xFF2A2A2A);
-        p.setTextAlign(Paint.Align.CENTER);
         p.setTextSize(10 * d);
+        p.setFakeBoldText(true);
         String title = "\u266A " + music.title();
         float maxW = panW - 40 * d;
         int fit = p.breakText(title, true, maxW, null);
         if (fit < title.length()) title = title.substring(0, Math.max(1, fit - 1)) + "\u2026";
-        c.drawText(title, panW / 2f, 238 * d, p);
+        p.setFakeBoldText(false);
+        drawIridescent(c, title, panW / 2f, 238 * d, 10 * d);
 
+        boolean playing = music.playing();
         for (int i = 0; i < 3; i++) {
-            float cx = transportX(i), cy = transportY(), rad = 17 * d;
+            float rad = TRANSPORT_R * d;
+            c.save();
+            c.translate(transportX(i), transportY());
             p.setStyle(Paint.Style.FILL);
-            p.setShader(new RadialGradient(cx - 5 * d, cy - 5 * d, 24 * d, 0xFFF5F5F5, 0xFF9C9C9C, Shader.TileMode.CLAMP));
-            c.drawCircle(cx, cy, rad, p);
+            p.setShader(transportFace);
+            c.drawCircle(0, 0, rad, p);
             p.setShader(null);
             p.setStyle(Paint.Style.STROKE);
             p.setStrokeWidth(2.5f * d);
-            p.setColor(i == 1 && music.playing() ? 0xFF2EAD5B : 0xFF555555);
-            c.drawCircle(cx, cy, rad, p);
+            p.setColor(i == 1 && playing ? 0xFF2EAD5B : 0xFF555555);
+            c.drawCircle(0, 0, rad, p);
 
             p.setStyle(Paint.Style.FILL);
             p.setColor(0xFF2A2A2A);
             path.reset();
-            if (i == 1 && music.playing()) { // pausar
-                r.set(cx - 6 * d, cy - 6.5f * d, cx - 2 * d, cy + 6.5f * d);
+            if (i == 1 && playing) { // pausar
+                r.set(-6 * d, -6.5f * d, -2 * d, 6.5f * d);
                 c.drawRect(r, p);
-                r.set(cx + 2 * d, cy - 6.5f * d, cx + 6 * d, cy + 6.5f * d);
+                r.set(2 * d, -6.5f * d, 6 * d, 6.5f * d);
                 c.drawRect(r, p);
-            } else if (i == 1) {             // tocar
-                path.moveTo(cx - 4 * d, cy - 7 * d);
-                path.lineTo(cx + 7 * d, cy);
-                path.lineTo(cx - 4 * d, cy + 7 * d);
+            } else if (i == 1) {     // tocar
+                path.moveTo(-4 * d, -7 * d);
+                path.lineTo(7 * d, 0);
+                path.lineTo(-4 * d, 7 * d);
                 path.close();
                 c.drawPath(path, p);
             } else {
                 // anterior |◀ (barra na esquerda, ponta pra esquerda) e próxima ▶| (espelhada)
                 float s = i == 0 ? 1f : -1f;
-                path.moveTo(cx + s * 6 * d, cy - 6 * d);
-                path.lineTo(cx - s * 4 * d, cy);
-                path.lineTo(cx + s * 6 * d, cy + 6 * d);
+                path.moveTo(s * 6 * d, -6 * d);
+                path.lineTo(-s * 4 * d, 0);
+                path.lineTo(s * 6 * d, 6 * d);
                 path.close();
                 c.drawPath(path, p);
-                float bar = cx - s * 7 * d;
-                r.set(bar - 1.2f * d, cy - 6 * d, bar + 1.2f * d, cy + 6 * d);
+                float bar = -s * 7 * d;
+                r.set(bar - 1.2f * d, -6 * d, bar + 1.2f * d, 6 * d);
                 c.drawRect(r, p);
             }
+            c.restore();
         }
     }
 
-    /** "By - Gilberto" em RGB, com contorno preto pra aparecer em cima do metal. */
+    /** "By - Gilberto" em RGB, com contorno preto pra aparecer em cima do papel. */
     private void drawSignature(Canvas c) {
         float t = (SystemClock.uptimeMillis() - t0) / 1000f;
         rainbowMatrix.setTranslate((t * 70f * d) % (RAINBOW_LEN * d), 0);

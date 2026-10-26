@@ -13,6 +13,8 @@ Feito com base nos filtros CRT LIGHT e STRONG do port do jogo *Black* para Andro
   - **FOTO** (captura de tela), **APAGAR** (bloqueia a tela), **RAM** (limpa a memória) e **MAX** (modo desempenho);
   - **player de música** da pasta que você escolher: toda música colocada na pasta é reconhecida sozinha.
 - **Meus jogos:** o **+** do pilar escolhe quais apps entram na lista e o **🎮** abre ela; **JOGAR** liga o CRT, limpa a RAM (se o modo desempenho estiver ligado) e abre o jogo.
+- **O Bob muda sozinho:** de dia é o Bob com sombra; de noite ele dança na discoteca; com o modo desempenho ligado vira Super Saiyajin. Lá em cima na tela ele fica de cabeça pra baixo.
+- **Clima:** digite a cidade em ▦ → "Cidade do clima" e o painel mostra a temperatura, nuvens e chuva (Open-Meteo, só o nome da cidade vai pra internet).
 - **Fluidez do Bob:** troca leveza por suavidade (mistura os quadros quando está alta).
 - **Brilho nunca automático:** o app desliga o brilho adaptável e vigia pra ele não voltar sozinho.
 - Abertura em gif, música de fundo (só dentro do app) e cenário animado. A lista de ajustes rola e encaixa em cada prateleira.
@@ -36,6 +38,10 @@ O APK é assinado com a chave `app/tubo-crt.jks`, que é **pública de propósit
 | Modificar configurações do sistema (opcional) | controle de brilho do painel |
 | Segundo plano / RAM / WAKE_LOCK | limpar a RAM e o modo desempenho |
 
+## Aviso de "vírus" na instalação
+
+O Android (Google Play Protect) avisa em todo app que não vem da Play Store e que pede permissões fortes, como sobrepor outros apps e Acessibilidade. O Tubo CRT não tem anúncios, não coleta nada e o código está aqui pra ser conferido. Na tela do aviso, toque em **Mais detalhes → Instalar mesmo assim**.
+
 ## O que ele não faz
 
 - **Não entorta a imagem de outros apps** (olho de peixe real). Um overlay só desenha por cima e não recebe a imagem do jogo. Os cantos arredondados e a sombra imitam o visual.
@@ -43,7 +49,7 @@ O APK é assinado com a chave `app/tubo-crt.jks`, que é **pública de propósit
 
 ## Arquivos de terceiros (não inclusos neste repositório público)
 
-O Bob (`app/src/main/assets/bob_sheet.png`) e a música (`app/src/main/res/raw/intro_music.mp3`) são opcionais: sem eles o app desenha um Bob simples e fica sem som. Coloque os seus se quiser, desde que você tenha o direito de usá-los.
+O Bob (`app/src/main/assets/bob_day.png`, `bob_night.png` e `bob_saiyan.png`) e a música (`app/src/main/res/raw/intro_music.mp3`) são opcionais: sem eles o app desenha um Bob simples e fica sem som. Coloque os seus se quiser, desde que você tenha o direito de usá-los.
 
 ## Créditos
 

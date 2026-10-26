@@ -12,7 +12,6 @@ import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Outline;
 import android.graphics.ImageDecoder;
 import android.graphics.Paint;
 import android.graphics.RectF;
@@ -31,8 +30,8 @@ import android.provider.Settings;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.ViewOutlineProvider;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.CompoundButton;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -81,7 +80,6 @@ public class MainActivity extends Activity {
     private SnapScrollView scroller;
     private LinearLayout list;
     private IconButton optionsButton, addButton, gamesButton;
-    private ImageView paper;
     private ImageView bg, intro;
     private MediaPlayer appMusic;
     private boolean introDone = false;
@@ -107,24 +105,6 @@ public class MainActivity extends Activity {
         scroller.addView(list, new FrameLayout.LayoutParams(-1, -2));
         scroller.setVisibility(View.INVISIBLE); // só aparece quando o cenário carregar, pra alinhar nas prateleiras
         stage.addView(scroller);
-
-        // pergaminho no lugar da coluna branca do cenário; os botões do pilar ficam em cima dele
-        paper = new ImageView(this);
-        paper.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        paper.setBackgroundColor(0xFFC9A15B);
-        paper.setImageDrawable(load("parchment.jpg"));
-        paper.setClipToOutline(true);
-        paper.setOutlineProvider(new ViewOutlineProvider() {
-            @Override public void getOutline(View v, Outline outline) {
-                outline.setRoundRect(0, 0, v.getWidth(), v.getHeight(), 8 * dens);
-            }
-        });
-        GradientDrawable paperEdge = new GradientDrawable();
-        paperEdge.setColor(Color.TRANSPARENT);
-        paperEdge.setStroke(Math.round(2 * dens), 0xAA3A200A);
-        paperEdge.setCornerRadius(8 * dens);
-        paper.setForeground(paperEdge);
-        stage.addView(paper);
 
         optionsButton = new IconButton(this, IconButton.GRID);
         addButton = new IconButton(this, IconButton.PLUS);
@@ -217,18 +197,14 @@ public class MainActivity extends Activity {
         scroller.setPitch(pitchPx);
         applyRowSizes();
 
-        // pergaminho cobrindo o pilar branco: coluna na horizontal, faixa de cima na vertical
-        if (land) place(paper, Math.round(dx + sw * 0.097f), Math.round(dy) - 2, Math.round(sw * 0.077f), Math.round(sh) + 4);
-        else place(paper, Math.round(dx) - 2, Math.round(dy + sh * 0.102f), Math.round(sw) + 4, Math.round(sh * 0.067f));
-
-        int size = land ? Math.round(52 * dens) : Math.min(Math.round(52 * dens), Math.round(sh * 0.067f * 0.78f));
-        if (land) {
+        int size = Math.round(52 * dens);
+        if (land) { // pilar: coluna branca à esquerda
             int cx = Math.round(dx + sw * 0.135f - size / 2f), y = Math.round(dy + sh * 0.14f);
             place(optionsButton, cx, y, size, size);
             place(addButton, cx, y + Math.round(size * 1.35f), size, size);
             place(gamesButton, cx, y + Math.round(size * 2.7f), size, size);
-        } else {
-            int x = Math.round(dx + sw * 0.12f), y = Math.round(dy + sh * 0.102f + (sh * 0.067f - size) / 2f);
+        } else {    // pilar: faixa de cima
+            int x = Math.round(dx + sw * 0.12f), y = Math.round(dy + sh * 0.025f);
             place(optionsButton, x, y, size, size);
             place(addButton, x + Math.round(size * 1.4f), y, size, size);
             place(gamesButton, x + Math.round(size * 2.8f), y, size, size);
@@ -430,6 +406,7 @@ public class MainActivity extends Activity {
         box.addView(dialogButton("Controle de brilho: " + (Settings.System.canWrite(this) ? "permitido" : "permitir"),
                 v -> startActivity(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:" + getPackageName())))));
         box.addView(dialogButton("Pasta de músicas: " + folderName(), v -> pickMusicFolder()));
+        box.addView(dialogButton("Cidade do clima: " + sp.getString("wx_name", "não definida"), v -> askCity()));
         box.addView(dialogButton("Limpar a RAM agora", v -> cleanRam()));
         box.addView(dialogButton("Esconder a notificação (abre as configurações)", v -> openNotificationSettings()));
 
@@ -505,6 +482,32 @@ public class MainActivity extends Activity {
             m.rescan();
             runOnUiThread(() -> Toast.makeText(this, m.count() + " músicas encontradas", Toast.LENGTH_LONG).show());
         }).start();
+    }
+
+    /** Só o nome da cidade vai pra internet, pra buscar a temperatura. O app não usa sua localização. */
+    private void askCity() {
+        final EditText input = new EditText(this);
+        input.setSingleLine(true);
+        input.setHint("Ex.: Recife");
+        input.setText(sp.getString("wx_name", ""));
+        new AlertDialog.Builder(this)
+                .setTitle("Cidade do clima")
+                .setView(input)
+                .setPositiveButton("Buscar", (dlg, which) -> {
+                    final String name = input.getText().toString().trim();
+                    if (name.isEmpty()) return;
+                    Toast.makeText(this, "Procurando…", Toast.LENGTH_SHORT).show();
+                    new Thread(() -> {
+                        String found = null;
+                        try { found = Weather.findCity(this, name); } catch (Exception ignored) { /* sem internet */ }
+                        final String result = found;
+                        runOnUiThread(() -> Toast.makeText(this, result != null ? "Clima de " + result
+                                : "Não achei essa cidade (precisa de internet)", Toast.LENGTH_LONG).show());
+                        if (result != null) Weather.refreshIfStale(this);
+                    }).start();
+                })
+                .setNegativeButton("Cancelar", null)
+                .show();
     }
 
     private void openNotificationSettings() {
