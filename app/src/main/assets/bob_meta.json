@@ -8,15 +8,6 @@
   "aspect": 1.1069,
   "scale": 1.0
  },
- "night": {
-  "file": "bob_night.png",
-  "cols": 10,
-  "rows": 6,
-  "frames": 60,
-  "ms": 79.3,
-  "aspect": 1.0718,
-  "scale": 1.9
- },
  "saiyan": {
   "file": "bob_saiyan.png",
   "cols": 8,
@@ -25,5 +16,41 @@
   "ms": 99.2,
   "aspect": 0.9266,
   "scale": 1.5
+ },
+ "disco": {
+  "file": "bob_disco.png",
+  "cols": 10,
+  "rows": 6,
+  "frames": 60,
+  "ms": 79.3,
+  "aspect": 1.0718,
+  "scale": 1.9
+ },
+ "sky_day": {
+  "file": "sky_day.png",
+  "cols": 1,
+  "rows": 1,
+  "frames": 1,
+  "ms": 1000.0,
+  "aspect": 6.5606,
+  "scale": 1.0
+ },
+ "sky_night": {
+  "file": "sky_night.png",
+  "cols": 4,
+  "rows": 13,
+  "frames": 52,
+  "ms": 20.0,
+  "aspect": 6.5455,
+  "scale": 1.0
+ },
+ "sword": {
+  "file": "bob_sword.png",
+  "cols": 10,
+  "rows": 8,
+  "frames": 80,
+  "ms": 40.0,
+  "aspect": 0.2533,
+  "scale": 1.7
  }
 }

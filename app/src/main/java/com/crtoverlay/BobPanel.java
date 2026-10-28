@@ -112,6 +112,7 @@ public class BobPanel extends View {
         @Override public void run() {
             if (!added) return;
             ensureVariant();
+            ensureSky();
             invalidate();
             handler.postDelayed(this, tickInterval());
         }
@@ -119,7 +120,11 @@ public class BobPanel extends View {
 
     private Bitmap sheet, paperBitmap;
     private BitmapShader plate;
-    private Variant variant;
+    private Variant variant, skyVariant;
+    private Bitmap skySheet;
+    private String skyKey = "";
+    private boolean skyLoading;
+    private int skyW, skyH;
     private String currentVariant = "";
     private boolean loading;
     private int frameW, frameH, skyShaderColor;
@@ -212,10 +217,14 @@ public class BobPanel extends View {
         return h < 6 || h >= 18;
     }
 
-    /** Modo desempenho: Super Saiyajin. Senão, de noite dança na discoteca; de dia é o Bob com sombra. */
+    /**
+     * Modo desempenho: Super Saiyajin. Ouvindo música: Bob na discoteca.
+     * Senão, de noite na vida real: a espada; de dia: o Bob com sombra.
+     */
     private String wantedVariant() {
         if (sp.getBoolean("perf_on", false)) return "saiyan";
-        return isNight() ? "night" : "day";
+        if (music.playing()) return "disco";
+        return isNight() ? "sword" : "day";
     }
 
     private void ensureVariant() {
@@ -236,6 +245,32 @@ public class BobPanel extends View {
                 if (b != null) { frameW = b.getWidth() / v.cols; frameH = b.getHeight() / v.rows; }
                 if (old != null) old.recycle();
                 refreshLook(); // a proporção muda de um Bob pro outro
+            });
+        }).start();
+    }
+
+    /** Carrega o gif do céu (dia ou noite) quando o painel abre e libera a memória quando fecha. */
+    private void ensureSky() {
+        if (!open && anim <= 0f) {
+            if (skySheet != null) { skySheet.recycle(); skySheet = null; skyVariant = null; skyKey = ""; }
+            return;
+        }
+        final String want = isNight() ? "sky_night" : "sky_day";
+        if (want.equals(skyKey) || skyLoading) return;
+        final Variant v = variants.get(want);
+        if (v == null) { skyKey = want; return; }
+        skyLoading = true;
+        new Thread(() -> {
+            final Bitmap b = decodeSheet(v.file);
+            handler.post(() -> {
+                skyLoading = false;
+                if (!added || (!open && anim <= 0f)) { if (b != null) b.recycle(); return; }
+                Bitmap old = skySheet;
+                skySheet = b;
+                skyVariant = v;
+                skyKey = want;
+                if (b != null) { skyW = b.getWidth() / v.cols; skyH = b.getHeight() / v.rows; }
+                if (old != null) old.recycle();
             });
         }).start();
     }
@@ -282,6 +317,7 @@ public class BobPanel extends View {
         if (animator != null) animator.cancel();
         try { wm.removeView(this); } catch (RuntimeException ignored) { /* janela já removida */ }
         if (sheet != null) { sheet.recycle(); sheet = null; }
+        if (skySheet != null) { skySheet.recycle(); skySheet = null; }
         if (paperBitmap != null) { paperBitmap.recycle(); paperBitmap = null; plate = null; }
     }
 
@@ -386,6 +422,7 @@ public class BobPanel extends View {
             new Thread(music::rescan).start(); // reconhece músicas novas na pasta
             Weather.refreshIfStale(ctx);
             applyWindow(true);
+            ensureSky();
             animateTo(1f, true);
             handler.postDelayed(autoClose, AUTO_CLOSE_MS);
         } else {
@@ -466,6 +503,7 @@ public class BobPanel extends View {
             case 0: global(AccessibilityService.GLOBAL_ACTION_TAKE_SCREENSHOT); break;
             case 1: global(AccessibilityService.GLOBAL_ACTION_LOCK_SCREEN); break;
             case 2:
+                Sfx.ramClean(ctx);
                 Toast.makeText(ctx, "Limpando a RAM…", Toast.LENGTH_SHORT).show();
                 Ram.clean(ctx, (freed, avail) -> Toast.makeText(ctx,
                         "RAM livre: " + avail + " MB (+" + freed + " MB)", Toast.LENGTH_LONG).show());
@@ -686,6 +724,7 @@ public class BobPanel extends View {
             p.setShader(null);
             p.setColor(0x1F000000); // um pouco de sombra pro papel não ficar chapado
             c.drawRoundRect(r, 11 * d, 11 * d, p);
+            p.setColor(0xFFFFFFFF); // volta o pincel pra opaco: gradiente desenhado depois herda a transparência da cor
         } else {
             p.setShader(new LinearGradient(0, r.top, 0, r.bottom, 0xFFCACACA, 0xFF8A8A8A, Shader.TileMode.CLAMP));
             c.drawRoundRect(r, 11 * d, 11 * d, p);
@@ -744,16 +783,37 @@ public class BobPanel extends View {
         c.clipRect(left, top, right, bottom);
 
         p.setStyle(Paint.Style.FILL);
-        if (skyShader == null || skyShaderColor != sky) {
-            skyShaderColor = sky;
-            skyShader = new LinearGradient(0, top, 0, bottom, lerpColor(sky, 0xFF000000, 0.35f), sky, Shader.TileMode.CLAMP);
-        }
-        p.setShader(skyShader);
-        c.drawRect(left, top, right, bottom, p);
-        p.setShader(null);
-
+        p.setColor(0xFFFFFFFF);
         float night = nightAmount(hour);
-        if (night > 0.01f && kind < Weather.RAIN) { // estrelas
+        if (skySheet != null && skyVariant != null) {
+            // gif do céu preenchendo a faixa (corta o que sobra, sem esticar); o céu parado anda bem devagar de lado
+            int idx = skyVariant.frames > 1 ? (int) (((SystemClock.uptimeMillis() - t0) / skyVariant.ms) % skyVariant.frames) : 0;
+            int sl = (idx % skyVariant.cols) * skyW, st = (idx / skyVariant.cols) * skyH;
+            float bandW = right - left, bandH = bottom - top;
+            float sc = Math.max(bandW / skyW, bandH / skyH);
+            float cropW = Math.min(skyW, bandW / sc), cropH = Math.min(skyH, bandH / sc);
+            float pan = skyVariant.frames == 1 ? (float) Math.sin(t * 0.25f) * 0.5f : 0f;
+            int cl = Math.round(sl + (skyW - cropW) / 2f * (1f + pan));
+            int ct = Math.round(st + (skyH - cropH) / 2f);
+            src.set(cl, ct, Math.round(cl + cropW), Math.round(ct + cropH));
+            dst.set(left, top, right, bottom);
+            bobPaint.setAlpha(255);
+            c.drawBitmap(skySheet, src, dst, bobPaint);
+            if (kind >= Weather.RAIN) { // chuva escurece o céu
+                p.setColor(0x80303642);
+                c.drawRect(left, top, right, bottom, p);
+            }
+        } else {
+            if (skyShader == null || skyShaderColor != sky) {
+                skyShaderColor = sky;
+                skyShader = new LinearGradient(0, top, 0, bottom, lerpColor(sky, 0xFF000000, 0.35f), sky, Shader.TileMode.CLAMP);
+            }
+            p.setShader(skyShader);
+            c.drawRect(left, top, right, bottom, p);
+            p.setShader(null);
+        }
+
+        if (skySheet == null && night > 0.01f && kind < Weather.RAIN) { // estrelas (só enquanto o gif não carrega)
             p.setColor(Color.argb(Math.round(220 * night), 255, 255, 255));
             for (int i = 0; i < STAR_X.length; i++)
                 c.drawCircle(left + (right - left) * STAR_X[i], top + (bottom - top) * STAR_Y[i], 0.9f * d, p);
@@ -767,6 +827,7 @@ public class BobPanel extends View {
         if (day) {
             c.save();
             c.translate(x, y);
+            p.setColor(0xFFFFFFFF);
             p.setShader(sunGlow);
             c.drawCircle(0, 0, 14 * d, p);
             p.setShader(null);
@@ -898,6 +959,7 @@ public class BobPanel extends View {
         if (v > 0.001f) c.drawArc(r, 45f - 270f * v, 270f * v, false, p);
 
         p.setStyle(Paint.Style.FILL);
+        p.setColor(0xFFFFFFFF);
         p.setShader(knobFace);
         c.drawCircle(0, 0, radius - 4 * d, p);
         p.setShader(null);
@@ -921,6 +983,7 @@ public class BobPanel extends View {
         c.save();
         c.translate(cx, cy);
         p.setStyle(Paint.Style.FILL);
+        p.setColor(0xFFFFFFFF);
         p.setShader(buttonFace);
         c.drawCircle(0, 0, rad, p);
         p.setShader(null);
@@ -989,6 +1052,7 @@ public class BobPanel extends View {
             c.save();
             c.translate(transportX(i), transportY());
             p.setStyle(Paint.Style.FILL);
+            p.setColor(0xFFFFFFFF);
             p.setShader(transportFace);
             c.drawCircle(0, 0, rad, p);
             p.setShader(null);

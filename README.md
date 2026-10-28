@@ -13,7 +13,9 @@ Feito com base nos filtros CRT LIGHT e STRONG do port do jogo *Black* para Andro
   - **FOTO** (captura de tela), **APAGAR** (bloqueia a tela), **RAM** (limpa a memória) e **MAX** (modo desempenho);
   - **player de música** da pasta que você escolher: toda música colocada na pasta é reconhecida sozinha.
 - **Meus jogos:** o **+** do pilar escolhe quais apps entram na lista e o **🎮** abre ela; **JOGAR** liga o CRT, limpa a RAM (se o modo desempenho estiver ligado) e abre o jogo.
-- **O Bob muda sozinho:** de dia é o Bob com sombra; de noite ele dança na discoteca; com o modo desempenho ligado vira Super Saiyajin. Lá em cima na tela ele fica de cabeça pra baixo.
+- **O Bob muda sozinho:** de dia é o Bob com sombra; de noite (na vida real) vira uma espada de luz; tocando música ele aparece dançando na discoteca; com o modo desempenho ligado vira Super Saiyajin. Lá em cima na tela ele fica de cabeça pra baixo.
+- **Céu animado** no topo do painel: pôr do sol de dia e estrelas de noite, com sol e lua andando pela hora.
+- O botão **RAM** limpa a memória e toca um áudio (`res/raw/ram_clean.mp3`, opcional).
 - **Clima:** digite a cidade em ▦ → "Cidade do clima" e o painel mostra a temperatura, nuvens e chuva (Open-Meteo, só o nome da cidade vai pra internet).
 - **Fluidez do Bob:** troca leveza por suavidade (mistura os quadros quando está alta).
 - **Brilho nunca automático:** o app desliga o brilho adaptável e vigia pra ele não voltar sozinho.

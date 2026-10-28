@@ -421,6 +421,7 @@ public class MainActivity extends Activity {
     }
 
     private void cleanRam() {
+        Sfx.ramClean(this);
         Toast.makeText(this, "Limpando a RAM…", Toast.LENGTH_SHORT).show();
         Ram.clean(this, (freed, avail) -> Toast.makeText(this,
                 "RAM livre: " + avail + " MB (+" + freed + " MB)", Toast.LENGTH_LONG).show());
