@@ -7,6 +7,7 @@ import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Shader;
+import android.os.Process;
 import android.os.SystemClock;
 import android.view.View;
 
@@ -44,6 +45,7 @@ public class CrtView extends View {
     private Bitmap baked;
     private volatile int generation = 0;
     private int bandHeight = 0;
+    private boolean paused;
 
     public CrtView(Context c) {
         super(c);
@@ -57,6 +59,12 @@ public class CrtView extends View {
         this.dim = dim; this.curve = curve; this.per = per; this.scan = scan; this.mask = mask;
         this.corner = corner; this.motion = motion; this.hard = hard; this.mtype = mtype; this.round = round;
         if (rebake) bake(); else invalidate();
+    }
+
+    /** Com a tela apagada (ou no modo gelado) a animação para de redesenhar. */
+    public void setPaused(boolean paused) {
+        this.paused = paused;
+        if (!paused) invalidate();
     }
 
     @Override protected void onSizeChanged(int w, int h, int ow, int oh) {
@@ -95,6 +103,7 @@ public class CrtView extends View {
         final float radius = round / 100f, aspect = w / (float) h;
 
         new Thread(() -> {
+            Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
             int[] px = new int[w * h];
             for (int y = 0; y < h; y++) {
                 if (gen != generation) return;
@@ -183,6 +192,6 @@ public class CrtView extends View {
             if (flicker > 0) canvas.drawColor(Color.argb(flicker, 0, 0, 0));
         }
         if (dim > 0) canvas.drawColor(Color.argb(dim * 255 / 100, 0, 0, 0));
-        if (motion > 0) postInvalidateDelayed(40); // 25 quadros por segundo, pra poupar bateria
+        if (motion > 0 && !paused) postInvalidateDelayed(40); // 25 quadros por segundo, pra poupar bateria
     }
 }

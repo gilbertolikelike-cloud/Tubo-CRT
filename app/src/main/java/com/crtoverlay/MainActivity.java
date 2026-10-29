@@ -124,19 +124,36 @@ public class MainActivity extends Activity {
         setContentView(frame);
 
         buildList();
-        if (state == null) {
+        boolean fromPanel = getIntent() != null && getIntent().getBooleanExtra("force_stop_all", false);
+        if (state == null && !fromPanel) {
             playIntro();
-        } else { // tela girou ou o app foi recriado: sem abertura
+        } else { // tela girou, app recriado ou veio do botão PARAR do painel: sem abertura
             intro.setVisibility(View.GONE);
             introDone = true;
         }
         loadBackground();
         loadGames();
+        handleLaunchIntent();
+    }
+
+    @Override protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleLaunchIntent();
+    }
+
+    private void handleLaunchIntent() {
+        Intent i = getIntent();
+        if (i != null && i.getBooleanExtra("force_stop_all", false)) {
+            i.removeExtra("force_stop_all");
+            stage.post(this::confirmForceStopAll);
+        }
     }
 
     @Override protected void onResume() {
         super.onResume();
         refresh();
+        if (introDone) startBackground();
         startMusic(); // só depois da abertura
         Brightness.forceManual(this, sp);
     }
@@ -144,6 +161,8 @@ public class MainActivity extends Activity {
     @Override protected void onPause() {
         super.onPause();
         if (appMusic != null && appMusic.isPlaying()) appMusic.pause(); // saiu do app = a música do app para
+        Drawable background = bg.getDrawable(); // e o cenário animado também (menos calor)
+        if (background instanceof AnimatedImageDrawable) ((AnimatedImageDrawable) background).stop();
     }
 
     @Override protected void onDestroy() {
@@ -394,8 +413,16 @@ public class MainActivity extends Activity {
         }));
         box.addView(switchRow("Bob e painel por cima de tudo", sp.getBoolean("panel_on", true),
                 (b, on) -> sp.edit().putBoolean("panel_on", on).apply()));
-        box.addView(switchRow("Modo desempenho (tela e CPU acordadas)", sp.getBoolean("perf_on", false),
-                (b, on) -> sp.edit().putBoolean("perf_on", on).apply()));
+        box.addView(switchRow("Modo desempenho (tela e CPU acordadas)", sp.getBoolean("perf_on", false), (b, on) -> {
+            SharedPreferences.Editor ed = sp.edit().putBoolean("perf_on", on);
+            if (on) ed.putBoolean("cool_on", false); // desempenho e gelado não ficam ligados juntos
+            ed.apply();
+        }));
+        box.addView(switchRow("Modo gelado (animações paradas, brilho baixo)", sp.getBoolean("cool_on", false), (b, on) -> {
+            SharedPreferences.Editor ed = sp.edit().putBoolean("cool_on", on);
+            if (on) ed.putBoolean("perf_on", false);
+            ed.apply();
+        }));
         box.addView(switchRow("Brilho nunca automático", sp.getBoolean("no_auto_bright", true), (b, on) -> {
             sp.edit().putBoolean("no_auto_bright", on).apply();
             Brightness.forceManual(this, sp);
@@ -408,6 +435,7 @@ public class MainActivity extends Activity {
         box.addView(dialogButton("Pasta de músicas: " + folderName(), v -> pickMusicFolder()));
         box.addView(dialogButton("Cidade do clima: " + sp.getString("wx_name", "não definida"), v -> askCity()));
         box.addView(dialogButton("Limpar a RAM agora", v -> cleanRam()));
+        box.addView(dialogButton("Parar todos os apps (força parada)", v -> confirmForceStopAll()));
         box.addView(dialogButton("Esconder a notificação (abre as configurações)", v -> openNotificationSettings()));
 
         ScrollView sv = new ScrollView(this);
@@ -507,6 +535,51 @@ public class MainActivity extends Activity {
                         if (result != null) Weather.refreshIfStale(this);
                     }).start();
                 })
+                .setNegativeButton("Cancelar", null)
+                .show();
+    }
+
+    // ---------- parar todos os apps ----------
+    /** Apps que podem ser parados: instalados por você e abríveis, menos este, a sua lista de jogos, a tela inicial e o teclado. */
+    private List<String> stoppableApps() {
+        PackageManager pm = getPackageManager();
+        Set<String> keep = new HashSet<>(sp.getStringSet("games_pkgs", Collections.<String>emptySet()));
+        keep.add(getPackageName());
+        ResolveInfo home = pm.resolveActivity(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0);
+        if (home != null) keep.add(home.activityInfo.packageName);
+        String ime = Settings.Secure.getString(getContentResolver(), Settings.Secure.DEFAULT_INPUT_METHOD);
+        if (ime != null && ime.indexOf('/') > 0) keep.add(ime.substring(0, ime.indexOf('/')));
+        List<String> out = new ArrayList<>();
+        for (ApplicationInfo ai : pm.getInstalledApplications(0)) {
+            if ((ai.flags & (ApplicationInfo.FLAG_SYSTEM | ApplicationInfo.FLAG_STOPPED)) != 0) continue;
+            if (!keep.contains(ai.packageName) && pm.getLaunchIntentForPackage(ai.packageName) != null) out.add(ai.packageName);
+        }
+        Collections.sort(out);
+        return out.size() > 40 ? new ArrayList<>(out.subList(0, 40)) : out; // até 40 por vez, pra não demorar demais
+    }
+
+    private void confirmForceStopAll() {
+        final CrtAccessService service = CrtAccessService.instance;
+        if (service == null) {
+            Toast.makeText(this, "Ative o Tubo CRT em Acessibilidade primeiro (talvez precise desligar e ligar de novo)", Toast.LENGTH_LONG).show();
+            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+            return;
+        }
+        if (service.isStopping()) {
+            Toast.makeText(this, "Já está parando os apps…", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final List<String> targets = stoppableApps();
+        if (targets.isEmpty()) {
+            Toast.makeText(this, "Nenhum app aberto pra parar", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("Parar todos os apps?")
+                .setMessage("Vou fechar até " + targets.size() + " apps, uns " + Math.round(targets.size() * 2.5f)
+                        + " segundos. Ficam de fora o Tubo CRT, a sua lista de jogos, a tela inicial e o teclado.\n\n"
+                        + "As telas de Configurações vão piscar. Não mexa no celular até aparecer \"Pronto\".")
+                .setPositiveButton("Parar", (dlg, which) -> service.forceStopAll(targets))
                 .setNegativeButton("Cancelar", null)
                 .show();
     }

@@ -62,14 +62,15 @@ public class BobPanel extends View {
     private static final boolean ASSET_FACES_LEFT = true;
 
     private static final int M_NONE = 0, M_BOB = 1, M_VOL = 2, M_BRI = 3;
-    private static final int M_BTN = 4;       // 4..7  = FOTO, APAGAR, RAM, MAX
-    private static final int M_TRANSPORT = 8; // 8..10 = anterior, tocar/pausar, próxima
-    private static final String[] BUTTON_LABEL = {"FOTO", "APAGAR", "RAM", "MAX"};
-    private static final int[] BUTTON_RING = {0xFF2EAD5B, 0xFFD94040, 0xFF4F6BFF, 0xFFFFC107};
+    private static final int M_BTN = 4;       // 4..9  = FOTO, APAGAR, RAM, MAX, PARAR, GELO
+    private static final int M_TRANSPORT = 10; // 10..12 = anterior, tocar/pausar, próxima
+    private static final String[] BUTTON_LABEL = {"FOTO", "APAGAR", "RAM", "MAX", "PARAR", "GELO"};
+    private static final int[] BUTTON_RING = {0xFF2EAD5B, 0xFFD94040, 0xFF4F6BFF, 0xFFFFC107, 0xFFFF7043, 0xFF4FC3F7};
     private static final float RAINBOW_LEN = 120f;
     private static final long AUTO_CLOSE_MS = 10000;
     private static final float PANEL_W_DP = 232f, PANEL_H_DP = 304f, BORDER_DP = 5f;
-    private static final float KNOB_R = 32f, BUTTON_R = 20f, TRANSPORT_R = 17f; // dp
+    private static final int BUTTONS = 6;
+    private static final float KNOB_R = 32f, BUTTON_R = 15f, TRANSPORT_R = 17f; // dp
 
     // cor do céu ao longo do dia
     private static final float[] SKY_HOURS = {0f, 5f, 6.5f, 8f, 16f, 17.5f, 19f, 21f, 24f};
@@ -110,7 +111,7 @@ public class BobPanel extends View {
     private final Runnable autoClose = () -> setOpen(false, true);
     private final Runnable tick = new Runnable() {
         @Override public void run() {
-            if (!added) return;
+            if (!added || paused) return;
             ensureVariant();
             ensureSky();
             invalidate();
@@ -126,7 +127,7 @@ public class BobPanel extends View {
     private boolean skyLoading;
     private int skyW, skyH;
     private String currentVariant = "";
-    private boolean loading;
+    private boolean loading, paused;
     private int frameW, frameH, skyShaderColor;
     private Shader skyShader;
     private WindowManager.LayoutParams lp;
@@ -277,6 +278,7 @@ public class BobPanel extends View {
 
     /** Quanto menor o intervalo, mais suave (e mais pesado). 0% = 160 ms (6 fps), 100% = 16 ms (60 fps). */
     private long tickInterval() {
+        if (sp.getBoolean("cool_on", false)) return 250; // modo gelado: 4 quadros por segundo
         int f = Math.max(0, Math.min(100, sp.getInt("bob_fluid", 60)));
         return 160 - 144L * f / 100;
     }
@@ -319,6 +321,15 @@ public class BobPanel extends View {
         if (sheet != null) { sheet.recycle(); sheet = null; }
         if (skySheet != null) { skySheet.recycle(); skySheet = null; }
         if (paperBitmap != null) { paperBitmap.recycle(); paperBitmap = null; plate = null; }
+    }
+
+    /** Tela apagada: o Bob para de desenhar até ela acender de novo. */
+    public void setPaused(boolean paused) {
+        this.paused = paused;
+        if (!paused && added) {
+            handler.removeCallbacks(tick);
+            handler.post(tick);
+        }
     }
 
     /** Tamanho, transparência ou Bob mudaram. */
@@ -508,10 +519,32 @@ public class BobPanel extends View {
                 Ram.clean(ctx, (freed, avail) -> Toast.makeText(ctx,
                         "RAM livre: " + avail + " MB (+" + freed + " MB)", Toast.LENGTH_LONG).show());
                 break;
-            default:
-                sp.edit().putBoolean("perf_on", !sp.getBoolean("perf_on", false)).apply(); // o Bob vira saiyajin no próximo quadro
+            case 3: { // o Bob vira saiyajin no próximo quadro; desempenho e gelado não ficam ligados juntos
+                boolean perfOn = !sp.getBoolean("perf_on", false);
+                SharedPreferences.Editor perfEditor = sp.edit().putBoolean("perf_on", perfOn);
+                if (perfOn) perfEditor.putBoolean("cool_on", false);
+                perfEditor.apply();
                 invalidate();
                 break;
+            }
+            case 4: // PARAR: abre o app, que pede confirmação e fecha os outros apps
+                setOpen(false, true);
+                try {
+                    ctx.startActivity(new Intent(ctx, MainActivity.class)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                            .putExtra("force_stop_all", true));
+                } catch (RuntimeException e) {
+                    Toast.makeText(ctx, "Abra o Tubo CRT e use ▦ → Parar todos os apps", Toast.LENGTH_LONG).show();
+                }
+                break;
+            default: { // GELO: liga e desliga o modo gelado
+                boolean coolOn = !sp.getBoolean("cool_on", false);
+                SharedPreferences.Editor coolEditor = sp.edit().putBoolean("cool_on", coolOn);
+                if (coolOn) coolEditor.putBoolean("perf_on", false);
+                coolEditor.apply();
+                invalidate();
+                break;
+            }
         }
     }
 
@@ -537,7 +570,7 @@ public class BobPanel extends View {
     // ---------- geometria das peças (dentro do painel, em px) ----------
     private float knobX(int i) { return (i == 0 ? 56 : PANEL_W_DP - 56) * d; }
     private float knobY() { return 86 * d; }
-    private float buttonX(int i) { return (40 + 53 * i) * d; }
+    private float buttonX(int i) { return (24 + 37 * i) * d; }
     private float buttonY() { return 184 * d; }
     private float transportX(int i) { return (PANEL_W_DP / 2f + (i - 1) * 52) * d; }
     private float transportY() { return 266 * d; }
@@ -549,8 +582,8 @@ public class BobPanel extends View {
         float px = x - (panX - winX), py = y - (panY - winY);
         for (int i = 0; i < 2; i++)
             if (Math.hypot(px - knobX(i), py - knobY()) < 40 * d) return i == 0 ? M_VOL : M_BRI;
-        for (int i = 0; i < 4; i++)
-            if (Math.hypot(px - buttonX(i), py - buttonY()) < 26 * d) return M_BTN + i;
+        for (int i = 0; i < BUTTONS; i++)
+            if (Math.hypot(px - buttonX(i), py - buttonY()) < 19 * d) return M_BTN + i;
         for (int i = 0; i < 3; i++)
             if (Math.hypot(px - transportX(i), py - transportY()) < 23 * d) return M_TRANSPORT + i;
         return M_NONE;
@@ -667,7 +700,7 @@ public class BobPanel extends View {
             int i1 = (i0 + 1) % variant.frames;
             i0 %= variant.frames;
             dst.set(lx, ly, lx + bobW, ly + bobH);
-            if (sp.getInt("bob_fluid", 60) >= 50 && f > 0.04f) {
+            if (sp.getInt("bob_fluid", 60) >= 50 && !sp.getBoolean("cool_on", false) && f > 0.04f) {
                 // mistura o quadro atual com o próximo: o movimento fica macio
                 int layer = c.saveLayerAlpha(dst, Math.round(255 * bobAlpha));
                 frameRect(i0);
@@ -735,7 +768,7 @@ public class BobPanel extends View {
         drawKnob(c, knobX(0), knobY(), volume, "VOL", 0xFF4F6BFF);
         drawKnob(c, knobX(1), knobY(), brightness, "BRI", 0xFFFFA833);
         drawClock(c);
-        for (int i = 0; i < 4; i++) drawButton(c, buttonX(i), buttonY(), i);
+        for (int i = 0; i < BUTTONS; i++) drawButton(c, buttonX(i), buttonY(), i);
         drawMusic(c);
         drawSignature(c);
     }
@@ -856,17 +889,16 @@ public class BobPanel extends View {
         p.setColor(0x33000000);                  // linha do horizonte
         c.drawRect(left, bottom - 2.5f * d, right, bottom, p);
 
-        if (Weather.hasData(sp)) { // temperatura
-            String temp = Math.round(Weather.temperature(sp)) + "\u00B0";
-            p.setTextAlign(Paint.Align.LEFT);
-            p.setTextSize(11 * d);
+        float battery = Heat.batteryTemp(ctx);   // temperatura do celular (bateria), no canto do céu
+        if (!Float.isNaN(battery)) {
+            String label = "CEL " + Math.round(battery) + "\u00B0C";
+            p.setTextSize(8.5f * d);
             p.setFakeBoldText(true);
-            p.setColor(0x99000000);
-            c.drawText(temp, left + 6 * d + 0.8f * d, top + 13 * d + 0.8f * d, p);
-            p.setColor(0xFFFFFFFF);
-            c.drawText(temp, left + 6 * d, top + 13 * d, p);
+            float half = p.measureText(label) / 2f;
             p.setFakeBoldText(false);
+            drawIridescent(c, label, left + 5 * d + half, top + 11 * d, 8.5f * d);
         }
+
         c.restore();
     }
 
@@ -915,6 +947,8 @@ public class BobPanel extends View {
         int m = now.get(Calendar.MINUTE);
         String time = h + ":" + (m < 10 ? "0" : "") + m;
         String period = now.get(Calendar.AM_PM) == Calendar.AM ? "AM" : "PM";
+        if (Weather.hasData(sp)) // temperatura em cima da hora
+            drawIridescent(c, Math.round(Weather.temperature(sp)) + "\u00B0C", panW / 2f, 112 * d, 12 * d);
         drawIridescent(c, time, panW / 2f, 130 * d, 15 * d);
         drawIridescent(c, period, panW / 2f, 142 * d, 9 * d);
     }
@@ -977,8 +1011,8 @@ public class BobPanel extends View {
     }
 
     private void drawButton(Canvas c, float cx, float cy, int i) {
-        boolean on = i == 3 && sp.getBoolean("perf_on", false);
-        int ring = i == 3 && !on ? 0xFF555555 : BUTTON_RING[i];
+        boolean on = (i == 3 && sp.getBoolean("perf_on", false)) || (i == 5 && sp.getBoolean("cool_on", false));
+        int ring = (i == 3 || i == 5) && !on ? 0xFF555555 : BUTTON_RING[i];
         float rad = BUTTON_R * d;
         c.save();
         c.translate(cx, cy);
@@ -1015,7 +1049,7 @@ public class BobPanel extends View {
                     c.drawLine(k * 5 * d, 5 * d, k * 5 * d, 8.5f * d, p);
                 }
                 break;
-            default: // desempenho: raio
+            case 3: // desempenho: raio
                 path.reset();
                 path.moveTo(3 * d, -10.5f * d);
                 path.lineTo(-6 * d, 2 * d);
@@ -1027,10 +1061,28 @@ public class BobPanel extends View {
                 p.setStyle(Paint.Style.FILL);
                 c.drawPath(path, p);
                 break;
+            case 4: // parar todos os apps: quadrado com um X
+                r.set(-7 * d, -7 * d, 7 * d, 7 * d);
+                c.drawRoundRect(r, 2 * d, 2 * d, p);
+                c.drawLine(-3.5f * d, -3.5f * d, 3.5f * d, 3.5f * d, p);
+                c.drawLine(3.5f * d, -3.5f * d, -3.5f * d, 3.5f * d, p);
+                break;
+            default: // modo gelado: floco de neve
+                for (int k = 0; k < 3; k++) {
+                    c.save();
+                    c.rotate(k * 60f);
+                    c.drawLine(0, -8 * d, 0, 8 * d, p);
+                    c.drawLine(-2.5f * d, -6 * d, 0, -4 * d, p);
+                    c.drawLine(2.5f * d, -6 * d, 0, -4 * d, p);
+                    c.drawLine(-2.5f * d, 6 * d, 0, 4 * d, p);
+                    c.drawLine(2.5f * d, 6 * d, 0, 4 * d, p);
+                    c.restore();
+                }
+                break;
         }
         c.restore();
 
-        drawIridescent(c, BUTTON_LABEL[i], cx, cy + rad + 11 * d, 8.5f * d);
+        drawIridescent(c, BUTTON_LABEL[i], cx, cy + rad + 11 * d, 7.2f * d);
     }
 
     /** Nome da música e botões de anterior, tocar/pausar e próxima. */

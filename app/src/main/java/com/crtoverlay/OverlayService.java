@@ -5,12 +5,14 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.database.ContentObserver;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
 import android.graphics.PixelFormat;
@@ -40,6 +42,14 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
     private PowerManager.WakeLock wakeLock;
     private boolean viaAccessibility;
     private ContentObserver brightnessGuard;
+    private boolean coolApplied, receiverRegistered;
+    private final BroadcastReceiver screenReceiver = new BroadcastReceiver() {
+        @Override public void onReceive(Context context, Intent intent) {
+            boolean off = Intent.ACTION_SCREEN_OFF.equals(intent.getAction());
+            if (view != null) view.setPaused(off);
+            if (panel != null) panel.setPaused(off);
+        }
+    };
 
     @Override public IBinder onBind(Intent intent) { return null; }
 
@@ -61,6 +71,12 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
         running = true;
         current = this;
         startBrightnessGuard();
+        if (!receiverRegistered) { // com a tela apagada, as animações param (menos calor e bateria)
+            IntentFilter screen = new IntentFilter(Intent.ACTION_SCREEN_OFF);
+            screen.addAction(Intent.ACTION_SCREEN_ON);
+            registerReceiver(screenReceiver, screen);
+            receiverRegistered = true;
+        }
         return START_STICKY;
     }
 
@@ -95,6 +111,7 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
         sp.registerOnSharedPreferenceChangeListener(this);
         startPanel();
         applyPerformance(false);
+        applyCool(false);
         return true;
     }
 
@@ -133,7 +150,8 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
     private void applyPrefs() {
         int[] v = new int[CrtView.KEYS.length];
         for (int i = 0; i < v.length; i++) v[i] = sp.getInt(CrtView.KEYS[i], CrtView.DEF[i]);
-        view.set(v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8], v[9]);
+        int motion = sp.getBoolean("cool_on", false) ? 0 : v[6]; // modo gelado: linhas paradas
+        view.set(v[0], v[1], v[2], v[3], v[4], v[5], motion, v[7], v[8], v[9]);
     }
 
     @Override public void onSharedPreferenceChanged(SharedPreferences prefs, String key) {
@@ -142,6 +160,8 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
             case "panel_on": if (sp.getBoolean("panel_on", true)) startPanel(); else stopPanel(); break;
             case "bob_size": case "bob_alpha": if (panel != null) panel.refreshLook(); break;
             case "perf_on": applyPerformance(true); break;
+            case "cool_on": applyCool(true); applyPrefs(); break;
+            case "cool_prev_bri": break;
             case "panel_fx": case "panel_fy": case "music_tree": case "games_pkgs": case "music_on": case "bob_fluid": break;
             case "no_auto_bright": Brightness.forceManual(this, sp); break;
             default: applyPrefs(); break;
@@ -169,6 +189,42 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
         else lp.flags &= ~WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON;
         try { wm.updateViewLayout(view, lp); } catch (RuntimeException ignored) { /* janela removida */ }
         applyPrefs();
+    }
+
+    /** Modo gelado: animações paradas, brilho baixado (guarda o antigo) e RAM limpa. Desligando, devolve o brilho. */
+    private void applyCool(boolean announce) {
+        boolean on = sp.getBoolean("cool_on", false);
+        if (on == coolApplied) return;
+        coolApplied = on;
+        boolean canWrite = Settings.System.canWrite(this);
+        if (on) {
+            if (canWrite) {
+                try {
+                    int current = Settings.System.getInt(getContentResolver(), Settings.System.SCREEN_BRIGHTNESS, 128);
+                    sp.edit().putInt("cool_prev_bri", current).apply();
+                    if (current > 110) Settings.System.putInt(getContentResolver(), Settings.System.SCREEN_BRIGHTNESS, 110);
+                } catch (RuntimeException ignored) { /* o sistema recusou */ }
+            }
+            if (announce) {
+                float t = Heat.batteryTemp(this);
+                Toast.makeText(this, "Modo gelado: animações paradas, brilho baixo e RAM limpa"
+                        + (Float.isNaN(t) ? "" : ". Celular a " + Math.round(t) + "\u00B0C"), Toast.LENGTH_LONG).show();
+                Ram.clean(this, null);
+            }
+        } else {
+            restoreBrightness();
+            if (announce) Toast.makeText(this, "Modo gelado desligado", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    /** Devolve o brilho que estava antes do modo gelado. */
+    private void restoreBrightness() {
+        int previous = sp.getInt("cool_prev_bri", -1);
+        if (previous > 0 && Settings.System.canWrite(this)) {
+            try { Settings.System.putInt(getContentResolver(), Settings.System.SCREEN_BRIGHTNESS, previous); }
+            catch (RuntimeException ignored) { /* o sistema recusou */ }
+        }
+        sp.edit().remove("cool_prev_bri").apply();
     }
 
     // ---------- brilho automático ----------
@@ -228,6 +284,8 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
         running = false;
         current = null;
         sp.unregisterOnSharedPreferenceChangeListener(this);
+        if (receiverRegistered) { unregisterReceiver(screenReceiver); receiverRegistered = false; }
+        if (coolApplied) restoreBrightness(); // desligar o filtro devolve o brilho; o modo gelado volta junto com ele
         if (wakeLock != null) { wakeLock.release(); wakeLock = null; }
         if (brightnessGuard != null) { getContentResolver().unregisterContentObserver(brightnessGuard); brightnessGuard = null; }
         MusicPlayer.get(this).stop();

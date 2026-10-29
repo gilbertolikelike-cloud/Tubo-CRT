@@ -15,6 +15,8 @@ Feito com base nos filtros CRT LIGHT e STRONG do port do jogo *Black* para Andro
 - **Meus jogos:** o **+** do pilar escolhe quais apps entram na lista e o **🎮** abre ela; **JOGAR** liga o CRT, limpa a RAM (se o modo desempenho estiver ligado) e abre o jogo.
 - **O Bob muda sozinho:** de dia é o Bob com sombra; de noite (na vida real) vira uma espada de luz; tocando música ele aparece dançando na discoteca; com o modo desempenho ligado vira Super Saiyajin. Lá em cima na tela ele fica de cabeça pra baixo.
 - **Céu animado** no topo do painel: pôr do sol de dia e estrelas de noite, com sol e lua andando pela hora.
+- **Modo gelado** (botão **GELO**, ou ▦): um app não esfria o aparelho de verdade, mas esse modo reduz o que esquenta. Para as animações do filtro e do Bob, baixa o brilho (e devolve ao desligar) e limpa a RAM. O céu do painel mostra a temperatura da bateria. Com a tela apagada, o app pausa tudo sozinho.
+- O botão **PARAR** (e ▦ → "Parar todos os apps") fecha os outros apps: o Android não deixa um app fazer isso direto, então ele abre a tela de cada app em Configurações e toca em "Forçar parada", usando a Acessibilidade. Leva uns 2 segundos por app e deixa de fora este app, a sua lista de jogos, a tela inicial e o teclado.
 - O botão **RAM** limpa a memória e toca um áudio (`res/raw/ram_clean.mp3`, opcional).
 - **Clima:** digite a cidade em ▦ → "Cidade do clima" e o painel mostra a temperatura, nuvens e chuva (Open-Meteo, só o nome da cidade vai pra internet).
 - **Fluidez do Bob:** troca leveza por suavidade (mistura os quadros quando está alta).
