@@ -1,12 +1,16 @@
 package com.crtoverlay;
 
+import android.Manifest;
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.media.AudioAttributes;
 import android.media.MediaPlayer;
+import android.media.audiofx.Visualizer;
 import android.net.Uri;
 import android.os.PowerManager;
+import android.os.SystemClock;
 import android.provider.DocumentsContract;
 import android.provider.DocumentsContract.Document;
 import java.io.IOException;
@@ -20,6 +24,9 @@ import java.util.Locale;
  * Chame {@link #rescan()} de novo pra reconhecer arquivos que você colocou depois.
  */
 final class MusicPlayer {
+    /** Número de barras do analisador (de 20 Hz a 20 kHz, de terço em terço de oitava). */
+    static final int BANDS = 31;
+
     private static MusicPlayer instance;
 
     static synchronized MusicPlayer get(Context ctx) {
@@ -40,6 +47,10 @@ final class MusicPlayer {
     private final Context ctx;
     private final SharedPreferences sp;
     private final List<Track> tracks = new ArrayList<>();
+    private final TvSound tv;
+    private final float[] level = new float[BANDS], peak = new float[BANDS];
+    private Visualizer visualizer;
+    private long levelStamp;
     private MediaPlayer player;
     private boolean prepared;
     private int index = -1;
@@ -47,6 +58,7 @@ final class MusicPlayer {
     private MusicPlayer(Context ctx) {
         this.ctx = ctx;
         this.sp = ctx.getSharedPreferences("crt", Context.MODE_PRIVATE);
+        this.tv = new TvSound(ctx);
     }
 
     // ---------- lista de músicas ----------
@@ -104,6 +116,82 @@ final class MusicPlayer {
         return dot > 0 ? name.substring(0, dot) : name;
     }
 
+    /** Aplica na hora a intensidade nova do chiado de TV. */
+    void applyTvSound() { tv.apply(); }
+
+    // ---------- analisador de espectro ----------
+    /** 0 = funcionando, 1 = falta a permissão de áudio, 2 = desligado nos ajustes. */
+    int analyzerState() {
+        if (!sp.getBoolean("spectrum_on", true)) return 2;
+        return ctx.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED ? 0 : 1;
+    }
+
+    /** Liga o analisador na música que está tocando (depois de liberar a permissão, por exemplo). */
+    synchronized void refreshVisualizer() {
+        if (player != null && prepared) attachVisualizer(player.getAudioSessionId());
+        else releaseVisualizer();
+    }
+
+    private void attachVisualizer(int session) {
+        releaseVisualizer();
+        if (analyzerState() != 0) return;
+        try {
+            Visualizer v = new Visualizer(session);
+            v.setCaptureSize(Visualizer.getCaptureSizeRange()[1]);
+            v.setDataCaptureListener(new Visualizer.OnDataCaptureListener() {
+                @Override public void onWaveFormDataCapture(Visualizer vis, byte[] waveform, int samplingRate) {}
+                @Override public void onFftDataCapture(Visualizer vis, byte[] fft, int samplingRate) { onFft(fft, samplingRate); }
+            }, Visualizer.getMaxCaptureRate(), false, true);
+            v.setEnabled(true);
+            visualizer = v;
+        } catch (RuntimeException e) {
+            visualizer = null; // sem permissão ou aparelho sem suporte
+        }
+    }
+
+    private void releaseVisualizer() {
+        if (visualizer != null) {
+            try { visualizer.setEnabled(false); visualizer.release(); } catch (RuntimeException ignored) { /* já liberado */ }
+            visualizer = null;
+        }
+    }
+
+    /** Converte o espectro (FFT) em 31 barras de volume, de 0 a 1. */
+    private void onFft(byte[] fft, int samplingRateMilliHz) {
+        int n = fft.length;
+        float hzPerBin = samplingRateMilliHz / 1000f / n;
+        float[] next = new float[BANDS];
+        for (int band = 0; band < BANDS; band++) {
+            float center = (float) (20.0 * Math.pow(10.0, band / 10.0));
+            int k0 = Math.max(1, (int) Math.floor(center / 1.1225f / hzPerBin));
+            int k1 = Math.min(n / 2 - 1, (int) Math.ceil(center * 1.1225f / hzPerBin));
+            if (k1 < k0) k1 = k0;
+            float mag = 0f;
+            for (int k = k0; k <= k1 && 2 * k + 1 < n; k++) mag = Math.max(mag, (float) Math.hypot(fft[2 * k], fft[2 * k + 1]));
+            float db = 20f * (float) Math.log10(mag + 1f);
+            next[band] = Math.max(0f, Math.min(1f, db / 40f + band * 0.006f)); // um pouco mais forte nos agudos, que chegam fracos
+        }
+        synchronized (level) {
+            for (int i = 0; i < BANDS; i++) {
+                level[i] = next[i] > level[i] ? next[i] : level[i] * 0.78f + next[i] * 0.22f; // sobe rápido, desce devagar
+                peak[i] = next[i] > peak[i] ? next[i] : Math.max(0f, peak[i] - 0.015f);
+            }
+            levelStamp = SystemClock.uptimeMillis();
+        }
+    }
+
+    /** Copia as barras atuais e os picos. Sem dados novos (música parada), elas descem sozinhas. */
+    void snapshot(float[] outLevel, float[] outPeak) {
+        synchronized (level) {
+            long age = SystemClock.uptimeMillis() - levelStamp;
+            float fade = age > 150 ? (float) Math.pow(0.5, (age - 150) / 180.0) : 1f;
+            for (int i = 0; i < BANDS; i++) {
+                outLevel[i] = level[i] * fade;
+                outPeak[i] = peak[i] * fade;
+            }
+        }
+    }
+
     synchronized int count() { return tracks.size(); }
 
     synchronized boolean playing() { return player != null && prepared && player.isPlaying(); }
@@ -119,7 +207,7 @@ final class MusicPlayer {
     synchronized void toggle() {
         if (tracks.isEmpty()) return;
         if (player != null && prepared) {
-            if (player.isPlaying()) player.pause(); else player.start();
+            if (player.isPlaying()) { player.pause(); tv.setPlaying(false); } else { player.start(); tv.setPlaying(true); }
         } else if (player == null) {
             play(index >= 0 ? index : 0);
         }
@@ -147,7 +235,13 @@ final class MusicPlayer {
                     .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC).build());
             mp.setWakeMode(ctx, PowerManager.PARTIAL_WAKE_LOCK);
             mp.setDataSource(ctx, tracks.get(i).uri);
-            mp.setOnPreparedListener(m -> { prepared = true; m.start(); });
+            mp.setOnPreparedListener(m -> {
+                prepared = true;
+                tv.attach(m.getAudioSessionId());      // chiado de TV (se estiver ligado nos ajustes)
+                attachVisualizer(m.getAudioSessionId()); // analisador de espectro (se tiver permissão)
+                m.start();
+                tv.setPlaying(true);
+            });
             mp.setOnCompletionListener(m -> next());
             mp.setOnErrorListener((m, what, extra) -> { release(); return true; });
             player = mp;
@@ -159,6 +253,8 @@ final class MusicPlayer {
 
     private void release() {
         prepared = false;
+        tv.release();
+        releaseVisualizer();
         if (player != null) {
             try { player.release(); } catch (RuntimeException ignored) { /* já liberado */ }
             player = null;

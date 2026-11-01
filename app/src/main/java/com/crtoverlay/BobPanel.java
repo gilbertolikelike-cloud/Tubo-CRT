@@ -23,6 +23,7 @@ import android.graphics.RadialGradient;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
+import android.graphics.SweepGradient;
 import android.media.AudioManager;
 import android.net.Uri;
 import android.os.Handler;
@@ -42,6 +43,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Calendar;
 import java.util.HashMap;
+import java.util.Random;
 import java.util.Map;
 import org.json.JSONException;
 import org.json.JSONObject;
@@ -68,7 +70,7 @@ public class BobPanel extends View {
     private static final int[] BUTTON_RING = {0xFF2EAD5B, 0xFFD94040, 0xFF4F6BFF, 0xFFFFC107, 0xFFFF7043, 0xFF4FC3F7};
     private static final float RAINBOW_LEN = 120f;
     private static final long AUTO_CLOSE_MS = 10000;
-    private static final float PANEL_W_DP = 232f, PANEL_H_DP = 304f, BORDER_DP = 5f;
+    private static final float PANEL_W_DP = 232f, PANEL_H_DP = 354f, BORDER_DP = 5f;
     private static final int BUTTONS = 6;
     private static final float KNOB_R = 32f, BUTTON_R = 15f, TRANSPORT_R = 17f; // dp
 
@@ -106,12 +108,23 @@ public class BobPanel extends View {
     private final Matrix matrix = new Matrix();
     private final Matrix rainbowMatrix = new Matrix();
     private final Matrix iridescentMatrix = new Matrix();
-    private final Shader rainbow, iridescent, knobFace, buttonFace, transportFace, sunGlow;
+    private final Shader rainbow, iridescent, sunGlow, stripA, stripB, stripC;
+    private final Paint uiPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private final Map<String, Variant> variants = new HashMap<>();
+    private static final String[] DANCERS = {"disco", "shaggy", "papyrus", "duck"};
+    private final Random rnd = new Random();
+    private final float[] specLevel = new float[MusicPlayer.BANDS], specPeak = new float[MusicPlayer.BANDS];
+    private String dancer = "disco";
+    private boolean wasPlaying;
+    private TrailView trail;
+    private final Runnable dropTrailRunnable = this::dropTrail;
     private final Runnable autoClose = () -> setOpen(false, true);
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             if (!added || paused) return;
+            boolean nowPlaying = music.playing();
+            if (nowPlaying && !wasPlaying) pickDancer(); // música começou: sorteia quem dança
+            wasPlaying = nowPlaying;
             ensureVariant();
             ensureSky();
             invalidate();
@@ -119,7 +132,7 @@ public class BobPanel extends View {
         }
     };
 
-    private Bitmap sheet, paperBitmap;
+    private Bitmap sheet, paperBitmap, capBig, capSmall, capTransport, dialRing;
     private BitmapShader plate;
     private Variant variant, skyVariant;
     private Bitmap skySheet;
@@ -160,9 +173,14 @@ public class BobPanel extends View {
         iridescent = new LinearGradient(0, 0, 90 * d, 0, new int[]{0xFF00E5FF, 0xFF7C4DFF, 0xFFFF4DD2, 0xFFFFD54F, 0xFF69F0AE, 0xFF00E5FF},
                 null, Shader.TileMode.REPEAT);
         // gradientes criados uma vez só, desenhados com o canvas deslocado (evita lixo a 60 quadros por segundo)
-        knobFace = new RadialGradient(-9 * d, -11 * d, KNOB_R * 1.5f * d, 0xFFF6F6F6, 0xFF7C7C7C, Shader.TileMode.CLAMP);
-        buttonFace = new RadialGradient(-6 * d, -6 * d, 30 * d, 0xFFF5F5F5, 0xFF9C9C9C, Shader.TileMode.CLAMP);
-        transportFace = new RadialGradient(-5 * d, -5 * d, 24 * d, 0xFFF5F5F5, 0xFF9C9C9C, Shader.TileMode.CLAMP);
+        stripA = new LinearGradient(0, 148 * d, 0, 210 * d, 0xFF000000, 0xFF1C1C1C, Shader.TileMode.CLAMP);
+        stripB = new LinearGradient(0, 272 * d, 0, 338 * d, 0xFF000000, 0xFF1C1C1C, Shader.TileMode.CLAMP);
+        stripC = new LinearGradient(0, 218 * d, 0, 264 * d, 0xFF000000, 0xFF1C1C1C, Shader.TileMode.CLAMP);
+        // peças com textura, desenhadas uma vez só: tampas de metal serrilhado e o aro preto com marcas
+        capBig = makeCap(Math.round(48 * d));
+        capSmall = makeCap(Math.round(24 * d));
+        capTransport = makeCap(Math.round(26 * d));
+        dialRing = makeDial(Math.round(76 * d));
         sunGlow = new RadialGradient(0, 0, 14 * d, 0x99FFE27A, 0x00FFE27A, Shader.TileMode.CLAMP);
         loadMeta();
         loadPaper();
@@ -219,13 +237,20 @@ public class BobPanel extends View {
     }
 
     /**
-     * Modo desempenho: Super Saiyajin. Ouvindo música: Bob na discoteca.
+     * Modo desempenho: Super Saiyajin. Ouvindo música: um dançarino sorteado (Bob da discoteca, Shaggy e Carl, Papyrus ou o pato).
      * Senão, de noite na vida real: a espada; de dia: o Bob com sombra.
      */
     private String wantedVariant() {
         if (sp.getBoolean("perf_on", false)) return "saiyan";
-        if (music.playing()) return "disco";
+        if (music.playing()) return dancer;
         return isNight() ? "sword" : "day";
+    }
+
+    /** Sorteia o próximo dançarino, sem repetir o que está na tela. */
+    private void pickDancer() {
+        String next;
+        do { next = DANCERS[rnd.nextInt(DANCERS.length)]; } while (next.equals(dancer));
+        dancer = next;
     }
 
     private void ensureVariant() {
@@ -280,7 +305,9 @@ public class BobPanel extends View {
     private long tickInterval() {
         if (sp.getBoolean("cool_on", false)) return 250; // modo gelado: 4 quadros por segundo
         int f = Math.max(0, Math.min(100, sp.getInt("bob_fluid", 60)));
-        return 160 - 144L * f / 100;
+        long interval = 160 - 144L * f / 100;
+        if (open && music.playing()) interval = Math.min(interval, 45); // o analisador precisa de quadros mais rápidos
+        return interval;
     }
 
     // ---------- ciclo de vida ----------
@@ -316,11 +343,52 @@ public class BobPanel extends View {
     public void hide() {
         added = false;
         handler.removeCallbacksAndMessages(null);
+        dropTrail();
         if (animator != null) animator.cancel();
         try { wm.removeView(this); } catch (RuntimeException ignored) { /* janela já removida */ }
         if (sheet != null) { sheet.recycle(); sheet = null; }
         if (skySheet != null) { skySheet.recycle(); skySheet = null; }
+        for (Bitmap b : new Bitmap[]{capBig, capSmall, capTransport, dialRing}) if (b != null) b.recycle();
+        capBig = capSmall = capTransport = dialRing = null;
         if (paperBitmap != null) { paperBitmap.recycle(); paperBitmap = null; plate = null; }
+    }
+
+    // ---------- rastro da espada ----------
+    /** Enquanto você arrasta a espada, uma janela de tela cheia (que não pega toque) desenha o rastro azul. */
+    private void trailPoint() {
+        if (!"sword".equals(currentVariant)) return;
+        if (trail == null) {
+            trail = new TrailView(ctx);
+            WindowManager.LayoutParams tp = new WindowManager.LayoutParams(screenW, screenH,
+                    viaAccessibility ? WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+                            : WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                            | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                    PixelFormat.TRANSLUCENT);
+            tp.gravity = Gravity.TOP | Gravity.START;
+            try {
+                wm.addView(trail, tp);
+            } catch (RuntimeException e) {
+                trail = null;
+                return;
+            }
+        }
+        handler.removeCallbacks(dropTrailRunnable);
+        boolean upsideDown = bobY + bobH / 2f < screenH * 0.35f;
+        float cx = bobX + bobW / 2f;
+        trail.add(cx, upsideDown ? bobY : bobY + bobH, cx, upsideDown ? bobY + bobH * 0.55f : bobY + bobH * 0.45f);
+    }
+
+    private void finishTrail() {
+        if (trail != null) handler.postDelayed(dropTrailRunnable, 700); // deixa o rastro sumir sozinho
+    }
+
+    private void dropTrail() {
+        handler.removeCallbacks(dropTrailRunnable);
+        if (trail != null) {
+            try { wm.removeView(trail); } catch (RuntimeException ignored) { /* janela já removida */ }
+            trail = null;
+        }
     }
 
     /** Tela apagada: o Bob para de desenhar até ela acender de novo. */
@@ -554,6 +622,7 @@ public class BobPanel extends View {
             return;
         }
         if (i == 0) music.previous(); else if (i == 1) music.toggle(); else music.next();
+        pickDancer(); // cada toque num botão do player sorteia um dançarino novo
         invalidate();
     }
 
@@ -569,11 +638,11 @@ public class BobPanel extends View {
 
     // ---------- geometria das peças (dentro do painel, em px) ----------
     private float knobX(int i) { return (i == 0 ? 56 : PANEL_W_DP - 56) * d; }
-    private float knobY() { return 86 * d; }
+    private float knobY() { return 88 * d; }
     private float buttonX(int i) { return (24 + 37 * i) * d; }
-    private float buttonY() { return 184 * d; }
+    private float buttonY() { return 170 * d; }
     private float transportX(int i) { return (PANEL_W_DP / 2f + (i - 1) * 52) * d; }
-    private float transportY() { return 266 * d; }
+    private float transportY() { return 316 * d; }
 
     private int hit(float x, float y) {
         float bl = bobX - winX, bt = bobY - winY;
@@ -625,6 +694,7 @@ public class BobPanel extends View {
                         bobY = clamp(startBobY + dy, 0f, screenH - bobH);
                         applyWindow(false);
                         invalidate();
+                        trailPoint();
                     }
                 } else if (mode == M_VOL || mode == M_BRI) {
                     turnKnob(px, py);
@@ -633,7 +703,7 @@ public class BobPanel extends View {
 
             case MotionEvent.ACTION_UP:
                 if (mode == M_BOB) {
-                    if (dragging) savePosition(); else setOpen(!open, true);
+                    if (dragging) { savePosition(); finishTrail(); } else setOpen(!open, true);
                 } else if (mode >= M_TRANSPORT && hit(x, y) == mode) {
                     onTransport(mode - M_TRANSPORT);
                 } else if (mode >= M_BTN && mode < M_TRANSPORT && hit(x, y) == mode) {
@@ -644,6 +714,7 @@ public class BobPanel extends View {
                 return true;
 
             case MotionEvent.ACTION_CANCEL:
+                finishTrail();
                 mode = M_NONE;
                 dragging = false;
                 return true;
@@ -765,6 +836,10 @@ public class BobPanel extends View {
         }
 
         drawSky(c);
+        drawStrip(c, stripA, 148, 210); // faixas pretas embutidas, como no painel de TV antiga
+        drawStrip(c, stripC, 218, 264); // analisador de espectro
+        drawStrip(c, stripB, 272, 338); // player
+        drawSpectrum(c);
         drawKnob(c, knobX(0), knobY(), volume, "VOL", 0xFF4F6BFF);
         drawKnob(c, knobX(1), knobY(), brightness, "BRI", 0xFFFFA833);
         drawClock(c);
@@ -974,61 +1049,160 @@ public class BobPanel extends View {
         p.setFakeBoldText(false);
     }
 
-    private void drawKnob(Canvas c, float cx, float cy, float v, String label, int color) {
-        float radius = KNOB_R * d, theta = 135f - 270f * v; // theta: graus no sentido horário, 0 = pra cima
-        c.save();
-        c.translate(cx, cy);
+    // ---------- peças com textura ----------
+    /** Tampa de botão: metal escuro escovado, serrilhado na borda e um disco no meio. */
+    private Bitmap makeCap(int px) {
+        Bitmap bmp = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888);
+        Canvas cv = new Canvas(bmp);
+        Paint q = new Paint(Paint.ANTI_ALIAS_FLAG);
+        float rad = px / 2f;
+        q.setShader(new SweepGradient(rad, rad, new int[]{0xFF2A2A2A, 0xFF707070, 0xFF1E1E1E, 0xFF7C7C7C, 0xFF2A2A2A}, null));
+        cv.drawCircle(rad, rad, rad, q); // brilho em "leque", como metal escovado
+        q.setShader(null);
+        q.setStyle(Paint.Style.STROKE);
+        q.setStrokeWidth(Math.max(1f, px * 0.016f));
+        for (int i = 0; i < 44; i++) { // serrilhado
+            cv.save();
+            cv.rotate(i * 360f / 44f, rad, rad);
+            q.setColor(i % 2 == 0 ? 0x66FFFFFF : 0x88000000);
+            cv.drawLine(rad, rad * 0.04f, rad, rad * 0.22f, q);
+            cv.restore();
+        }
+        q.setStyle(Paint.Style.FILL);
+        q.setShader(new RadialGradient(rad * 0.78f, rad * 0.68f, rad * 0.75f, 0xFF7E7E7E, 0xFF202020, Shader.TileMode.CLAMP));
+        cv.drawCircle(rad, rad, rad * 0.64f, q); // disco do meio
+        q.setShader(null);
+        q.setStyle(Paint.Style.STROKE);
+        q.setStrokeWidth(Math.max(1f, px * 0.02f));
+        q.setColor(0x88000000);
+        cv.drawCircle(rad, rad, rad * 0.64f, q);
+        q.setColor(0x44FFFFFF);
+        cv.drawCircle(rad, rad, rad - q.getStrokeWidth(), q);
+        return bmp;
+    }
+
+    /** Aro preto do dial, com as marcas de 0 a 100 em volta (igual o seletor de canais de TV antiga). */
+    private Bitmap makeDial(int px) {
+        Bitmap bmp = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888);
+        Canvas cv = new Canvas(bmp);
+        Paint q = new Paint(Paint.ANTI_ALIAS_FLAG);
+        float rad = px / 2f;
+        q.setColor(0xFF111111);
+        cv.drawCircle(rad, rad, rad, q);
+        q.setStyle(Paint.Style.STROKE);
+        q.setStrokeWidth(px * 0.02f);
+        q.setColor(0xFF3C3C3C);
+        cv.drawCircle(rad, rad, rad - q.getStrokeWidth() / 2f, q);
+        q.setStrokeCap(Paint.Cap.ROUND);
+        q.setColor(0xFFE8DCC0);
+        for (int k = 0; k <= 20; k++) { // 21 marcas em 270 graus; as de 5 em 5 são maiores
+            boolean major = k % 5 == 0;
+            q.setStrokeWidth(px * (major ? 0.028f : 0.018f));
+            cv.save();
+            cv.rotate(-135f + 13.5f * k, rad, rad);
+            cv.drawLine(rad, rad - rad * 0.93f, rad, rad - rad * (major ? 0.74f : 0.82f), q);
+            cv.restore();
+        }
+        return bmp;
+    }
+
+    /** Analisador de espectro: 31 barras de LED verde com o pico em vermelho, mexendo com a música. */
+    private void drawSpectrum(Canvas c) {
+        music.snapshot(specLevel, specPeak);
+        float left = 18 * d, width = panW - 36 * d, top = 223 * d, bottom = 260 * d;
+        float slot = width / MusicPlayer.BANDS, barW = slot * 0.68f;
+        int segs = 12;
+        float segH = (bottom - top) / segs, gap = segH * 0.3f;
         p.setShader(null);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(0xFF1B1B1B);
-        c.drawCircle(0, 0, radius + 5 * d, p);
+        for (int i = 0; i < MusicPlayer.BANDS; i++) {
+            float x = left + i * slot + (slot - barW) / 2f;
+            p.setColor(0x1A2EAD5B); // fundo apagado da barra
+            r.set(x, top, x + barW, bottom);
+            c.drawRect(r, p);
+            int lit = Math.round(specLevel[i] * segs);
+            for (int seg = 0; seg < lit; seg++) {
+                float y1 = bottom - seg * segH;
+                p.setColor(seg >= segs - 2 ? 0xFFE6E24A : 0xFF2EAD5B);
+                r.set(x, y1 - segH + gap, x + barW, y1);
+                c.drawRect(r, p);
+            }
+            int cap = Math.min(segs - 1, Math.round(specPeak[i] * segs));
+            if (cap > lit) {
+                float y1 = bottom - cap * segH;
+                p.setColor(0xFFD33A3A);
+                r.set(x, y1 - segH + gap, x + barW, y1);
+                c.drawRect(r, p);
+            }
+        }
+        int state = music.analyzerState();
+        if (state != 0) drawIridescent(c, state == 1 ? "analisador: libere o áudio em ▦" : "analisador desligado (▦)", panW / 2f, 245 * d, 7.5f * d);
+    }
 
-        r.set(-radius - 2.5f * d, -radius - 2.5f * d, radius + 2.5f * d, radius + 2.5f * d);
+    /** Faixa preta embutida (fundo dos botões e do player). */
+    private void drawStrip(Canvas c, Shader shader, float topDp, float bottomDp) {
+        r.set(12 * d, topDp * d, panW - 12 * d, bottomDp * d);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xFFFFFFFF);
+        p.setShader(shader);
+        c.drawRoundRect(r, 9 * d, 9 * d, p);
+        p.setShader(null);
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(4 * d);
+        p.setStrokeWidth(1.2f * d);
+        p.setColor(0x33FFFFFF);
+        c.drawRoundRect(r, 9 * d, 9 * d, p);
+    }
+
+    private void drawKnob(Canvas c, float cx, float cy, float v, String label, int color) {
+        float ringR = 38 * d, arcR = 40.5f * d, capR = 24 * d, theta = 135f - 270f * v; // theta: graus no sentido horário, 0 = pra cima
+        c.save();
+        c.translate(cx, cy);
+        dst.set(-ringR, -ringR, ringR, ringR);
+        c.drawBitmap(dialRing, null, dst, uiPaint); // aro preto com as marcas
+
+        r.set(-arcR, -arcR, arcR, arcR);
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(3.2f * d);
         p.setStrokeCap(Paint.Cap.ROUND);
-        p.setColor(0xFF3A3A3A);
+        p.setColor(0x66000000);
         c.drawArc(r, 135f, 270f, false, p);               // trilho inteiro, passando por cima
         p.setColor(color);
         if (v > 0.001f) c.drawArc(r, 45f - 270f * v, 270f * v, false, p);
 
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(0xFFFFFFFF);
-        p.setShader(knobFace);
-        c.drawCircle(0, 0, radius - 4 * d, p);
-        p.setShader(null);
-        p.setColor(0x22000000);
-        c.drawCircle(0, 0, radius * 0.55f, p);
-
-        c.rotate(theta);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(4 * d);
+        c.rotate(theta); // a tampa serrilhada gira junto com o ponteiro
+        dst.set(-capR, -capR, capR, capR);
+        c.drawBitmap(capBig, null, dst, uiPaint);
+        p.setStrokeWidth(3.2f * d);
         p.setColor(color);
-        c.drawLine(0, -radius * 0.30f, 0, -radius * 0.78f, p);
+        c.drawLine(0, -capR * 0.20f, 0, -capR * 0.90f, p);
         c.restore();
 
-        drawIridescent(c, label + " " + Math.round(v * 100) + "%", cx, cy + radius + 18 * d, 10.5f * d);
+        drawIridescent(c, label + " " + Math.round(v * 100) + "%", cx, cy + 40.5f * d + 9 * d, 10.5f * d);
     }
 
     private void drawButton(Canvas c, float cx, float cy, int i) {
         boolean on = (i == 3 && sp.getBoolean("perf_on", false)) || (i == 5 && sp.getBoolean("cool_on", false));
-        int ring = (i == 3 || i == 5) && !on ? 0xFF555555 : BUTTON_RING[i];
-        float rad = BUTTON_R * d;
+        int ring = (i == 3 || i == 5) && !on ? 0xFF6A6A6A : BUTTON_RING[i];
+        int ink = on ? ring : 0xFFEFE6CC;
+        float ringR = BUTTON_R * d, capR = 12 * d;
         c.save();
         c.translate(cx, cy);
-        p.setStyle(Paint.Style.FILL);
-        p.setColor(0xFFFFFFFF);
-        p.setShader(buttonFace);
-        c.drawCircle(0, 0, rad, p);
         p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xFF050505);
+        c.drawCircle(0, 0, ringR, p);
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(3 * d);
-        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeWidth(2.4f * d);
         p.setColor(ring);
-        c.drawCircle(0, 0, rad, p);
+        c.drawCircle(0, 0, ringR - 1.2f * d, p);
+        dst.set(-capR, -capR, capR, capR);
+        c.drawBitmap(capSmall, null, dst, uiPaint);
 
-        p.setColor(0xFF2A2A2A);
-        p.setStrokeWidth(2.2f * d);
+        c.scale(0.7f, 0.7f); // o desenho dos ícones foi feito pra um botão maior
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeWidth(2.6f * d);
+        p.setColor(ink);
         switch (i) {
             case 0: // captura: moldura com ponto
                 r.set(-9.5f * d, -7 * d, 9.5f * d, 7 * d);
@@ -1081,8 +1255,7 @@ public class BobPanel extends View {
                 break;
         }
         c.restore();
-
-        drawIridescent(c, BUTTON_LABEL[i], cx, cy + rad + 11 * d, 7.2f * d);
+        drawIridescent(c, BUTTON_LABEL[i], cx, cy + ringR + 10 * d, 7.2f * d);
     }
 
     /** Nome da música e botões de anterior, tocar/pausar e próxima. */
@@ -1092,51 +1265,51 @@ public class BobPanel extends View {
         p.setTextSize(10 * d);
         p.setFakeBoldText(true);
         String title = "\u266A " + music.title();
-        float maxW = panW - 40 * d;
+        float maxW = panW - 44 * d;
         int fit = p.breakText(title, true, maxW, null);
         if (fit < title.length()) title = title.substring(0, Math.max(1, fit - 1)) + "\u2026";
         p.setFakeBoldText(false);
-        drawIridescent(c, title, panW / 2f, 238 * d, 10 * d);
+        drawIridescent(c, title, panW / 2f, 290 * d, 10 * d);
 
         boolean playing = music.playing();
         for (int i = 0; i < 3; i++) {
-            float rad = TRANSPORT_R * d;
+            float ringR = TRANSPORT_R * d, capR = 13 * d;
             c.save();
             c.translate(transportX(i), transportY());
             p.setStyle(Paint.Style.FILL);
-            p.setColor(0xFFFFFFFF);
-            p.setShader(transportFace);
-            c.drawCircle(0, 0, rad, p);
-            p.setShader(null);
+            p.setColor(0xFF050505);
+            c.drawCircle(0, 0, ringR, p);
             p.setStyle(Paint.Style.STROKE);
-            p.setStrokeWidth(2.5f * d);
-            p.setColor(i == 1 && playing ? 0xFF2EAD5B : 0xFF555555);
-            c.drawCircle(0, 0, rad, p);
+            p.setStrokeWidth(2.4f * d);
+            p.setColor(i == 1 && playing ? 0xFF2EAD5B : 0xFF6A6A6A);
+            c.drawCircle(0, 0, ringR - 1.2f * d, p);
+            dst.set(-capR, -capR, capR, capR);
+            c.drawBitmap(capTransport, null, dst, uiPaint);
 
             p.setStyle(Paint.Style.FILL);
-            p.setColor(0xFF2A2A2A);
+            p.setColor(0xFFEFE6CC);
             path.reset();
             if (i == 1 && playing) { // pausar
-                r.set(-6 * d, -6.5f * d, -2 * d, 6.5f * d);
+                r.set(-5 * d, -5.5f * d, -1.5f * d, 5.5f * d);
                 c.drawRect(r, p);
-                r.set(2 * d, -6.5f * d, 6 * d, 6.5f * d);
+                r.set(1.5f * d, -5.5f * d, 5 * d, 5.5f * d);
                 c.drawRect(r, p);
             } else if (i == 1) {     // tocar
-                path.moveTo(-4 * d, -7 * d);
-                path.lineTo(7 * d, 0);
-                path.lineTo(-4 * d, 7 * d);
+                path.moveTo(-3.5f * d, -6 * d);
+                path.lineTo(6 * d, 0);
+                path.lineTo(-3.5f * d, 6 * d);
                 path.close();
                 c.drawPath(path, p);
             } else {
                 // anterior |◀ (barra na esquerda, ponta pra esquerda) e próxima ▶| (espelhada)
-                float s = i == 0 ? 1f : -1f;
-                path.moveTo(s * 6 * d, -6 * d);
-                path.lineTo(-s * 4 * d, 0);
-                path.lineTo(s * 6 * d, 6 * d);
+                float sgn = i == 0 ? 1f : -1f;
+                path.moveTo(sgn * 5 * d, -5 * d);
+                path.lineTo(-sgn * 3.5f * d, 0);
+                path.lineTo(sgn * 5 * d, 5 * d);
                 path.close();
                 c.drawPath(path, p);
-                float bar = -s * 7 * d;
-                r.set(bar - 1.2f * d, -6 * d, bar + 1.2f * d, 6 * d);
+                float bar = -sgn * 6 * d;
+                r.set(bar - 1.1f * d, -5 * d, bar + 1.1f * d, 5 * d);
                 c.drawRect(r, p);
             }
             c.restore();

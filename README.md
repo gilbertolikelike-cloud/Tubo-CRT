@@ -14,6 +14,10 @@ Feito com base nos filtros CRT LIGHT e STRONG do port do jogo *Black* para Andro
   - **player de música** da pasta que você escolher: toda música colocada na pasta é reconhecida sozinha.
 - **Meus jogos:** o **+** do pilar escolhe quais apps entram na lista e o **🎮** abre ela; **JOGAR** liga o CRT, limpa a RAM (se o modo desempenho estiver ligado) e abre o jogo.
 - **O Bob muda sozinho:** de dia é o Bob com sombra; de noite (na vida real) vira uma espada de luz; tocando música ele aparece dançando na discoteca; com o modo desempenho ligado vira Super Saiyajin. Lá em cima na tela ele fica de cabeça pra baixo.
+- **Dançarinos sorteados:** cada vez que você aperta um botão do player, aparece um novo: Bob da discoteca, Shaggy e Carl, Papyrus ou o pato.
+- **Espada com rastro:** de noite, arraste a espada e ela deixa um rastro azul com raios.
+- **Analisador de espectro:** 31 barras de LED mexendo com a música, no painel. Pede a permissão de áudio, que só serve pra ler o espectro da música; o app não grava nada.
+- **Chiado de TV:** o slider "Chiado de TV na música" deixa a música com som de caixinha de TV (sem graves nem agudos, com estática). Só vale pra música do app, nunca pro som dos jogos.
 - **Céu animado** no topo do painel: pôr do sol de dia e estrelas de noite, com sol e lua andando pela hora.
 - **Modo gelado** (botão **GELO**, ou ▦): um app não esfria o aparelho de verdade, mas esse modo reduz o que esquenta. Para as animações do filtro e do Bob, baixa o brilho (e devolve ao desligar) e limpa a RAM. O céu do painel mostra a temperatura da bateria. Com a tela apagada, o app pausa tudo sozinho.
 - O botão **PARAR** (e ▦ → "Parar todos os apps") fecha os outros apps: o Android não deixa um app fazer isso direto, então ele abre a tela de cada app em Configurações e toca em "Forçar parada", usando a Acessibilidade. Leva uns 2 segundos por app e deixa de fora este app, a sua lista de jogos, a tela inicial e o teclado.

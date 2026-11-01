@@ -55,7 +55,7 @@ import java.util.TreeMap;
  * No pilar da esquerda ficam dois botões: ▦ abre as opções de ligar/desligar e + escolhe os seus jogos.
  */
 public class MainActivity extends Activity {
-    private static final int REQ_MUSIC_FOLDER = 7;
+    private static final int REQ_MUSIC_FOLDER = 7, REQ_AUDIO = 8;
     private static final int INK = 0xFF1E1208; // texto escuro em cima da madeira clara
 
     // prateleiras amarelas (fração da altura do cenário) medidas nos gifs: {topo, base}
@@ -82,6 +82,7 @@ public class MainActivity extends Activity {
     private IconButton optionsButton, addButton, gamesButton;
     private ImageView bg, intro;
     private MediaPlayer appMusic;
+    private TvSound appTv;
     private boolean introDone = false;
     private int bandPx, pitchPx, bgToken;
 
@@ -161,12 +162,14 @@ public class MainActivity extends Activity {
     @Override protected void onPause() {
         super.onPause();
         if (appMusic != null && appMusic.isPlaying()) appMusic.pause(); // saiu do app = a música do app para
+        if (appTv != null) appTv.setPlaying(false);
         Drawable background = bg.getDrawable(); // e o cenário animado também (menos calor)
         if (background instanceof AnimatedImageDrawable) ((AnimatedImageDrawable) background).stop();
     }
 
     @Override protected void onDestroy() {
         if (appMusic != null) { appMusic.release(); appMusic = null; }
+        if (appTv != null) { appTv.release(); appTv = null; }
         super.onDestroy();
     }
 
@@ -274,6 +277,7 @@ public class MainActivity extends Activity {
         addRow(slider("Tamanho do Bob", "bob_size", 0, 100, 40, "%"));
         addRow(slider("Transparência do Bob (100 = sólido)", "bob_alpha", 10, 100, 100, "%"));
         addRow(slider("Fluidez do Bob (0 = leve, 100 = suave)", "bob_fluid", 0, 100, 60, ""));
+        addRow(slider("Chiado de TV na música (0 = desligado)", "tv_noise", 0, 100, 0, "%"));
         applyRowSizes();
         refresh();
         final int y = keep;
@@ -346,6 +350,7 @@ public class MainActivity extends Activity {
         bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar s, int progress, boolean fromUser) {
                 sp.edit().putInt(key, progress + min).apply();
+                if ("tv_noise".equals(key)) applyTvNoise();
                 text.setText(label + ": " + (progress + min) + unit);
             }
             @Override public void onStartTrackingTouch(SeekBar s) {}
@@ -409,7 +414,12 @@ public class MainActivity extends Activity {
         }));
         box.addView(switchRow("Música do app (só aqui dentro)", sp.getBoolean("music_on", true), (b, on) -> {
             sp.edit().putBoolean("music_on", on).apply();
-            if (on) startMusic(); else if (appMusic != null && appMusic.isPlaying()) appMusic.pause();
+            if (on) {
+                startMusic();
+            } else {
+                if (appMusic != null && appMusic.isPlaying()) appMusic.pause();
+                if (appTv != null) appTv.setPlaying(false);
+            }
         }));
         box.addView(switchRow("Bob e painel por cima de tudo", sp.getBoolean("panel_on", true),
                 (b, on) -> sp.edit().putBoolean("panel_on", on).apply()));
@@ -422,6 +432,12 @@ public class MainActivity extends Activity {
             SharedPreferences.Editor ed = sp.edit().putBoolean("cool_on", on);
             if (on) ed.putBoolean("perf_on", false);
             ed.apply();
+        }));
+        box.addView(switchRow("Analisador de espectro (pede permissão de áudio)", sp.getBoolean("spectrum_on", true), (b, on) -> {
+            sp.edit().putBoolean("spectrum_on", on).apply();
+            if (on && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
+                requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
+            else MusicPlayer.get(this).refreshVisualizer();
         }));
         box.addView(switchRow("Brilho nunca automático", sp.getBoolean("no_auto_bright", true), (b, on) -> {
             sp.edit().putBoolean("no_auto_bright", on).apply();
@@ -446,6 +462,19 @@ public class MainActivity extends Activity {
                 .setPositiveButton("Fechar", null)
                 .setOnDismissListener(dlg -> refresh())
                 .show();
+    }
+
+    private void applyTvNoise() {
+        MusicPlayer.get(this).applyTvSound();
+        if (appTv != null) appTv.apply();
+    }
+
+    @Override public void onRequestPermissionsResult(int request, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(request, permissions, results);
+        if (request != REQ_AUDIO) return;
+        boolean ok = results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED;
+        Toast.makeText(this, ok ? "Analisador liberado" : "Sem a permissão o analisador não funciona", Toast.LENGTH_LONG).show();
+        if (ok) MusicPlayer.get(this).refreshVisualizer();
     }
 
     private void cleanRam() {
@@ -775,8 +804,10 @@ public class MainActivity extends Activity {
             appMusic = MediaPlayer.create(this, id);
             if (appMusic == null) return;
             appMusic.setLooping(true);
+            appTv = new TvSound(this); // chiado de TV também na música do app
+            appTv.attach(appMusic.getAudioSessionId());
         }
-        if (!appMusic.isPlaying()) appMusic.start();
+        if (!appMusic.isPlaying()) { appMusic.start(); if (appTv != null) appTv.setPlaying(true); }
     }
 
     // ---------- botão redondo do pilar ----------

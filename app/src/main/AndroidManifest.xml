@@ -11,6 +11,9 @@
     <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES"/>
     <!-- Clima do painel (só o nome da cidade vai pra internet) -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Analisador de espectro: só lê o espectro da música; o app não grava nada -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
 
     <queries>
         <intent>

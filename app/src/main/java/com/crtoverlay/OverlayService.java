@@ -162,6 +162,8 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
             case "perf_on": applyPerformance(true); break;
             case "cool_on": applyCool(true); applyPrefs(); break;
             case "cool_prev_bri": break;
+            case "tv_noise": MusicPlayer.get(this).applyTvSound(); break;
+            case "spectrum_on": MusicPlayer.get(this).refreshVisualizer(); break;
             case "panel_fx": case "panel_fy": case "music_tree": case "games_pkgs": case "music_on": case "bob_fluid": break;
             case "no_auto_bright": Brightness.forceManual(this, sp); break;
             default: applyPrefs(); break;

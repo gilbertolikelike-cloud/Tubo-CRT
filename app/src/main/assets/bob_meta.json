@@ -52,5 +52,32 @@
   "ms": 40.0,
   "aspect": 0.2533,
   "scale": 1.7
+ },
+ "shaggy": {
+  "file": "bob_shaggy.png",
+  "cols": 10,
+  "rows": 8,
+  "frames": 80,
+  "ms": 62.2,
+  "aspect": 1.194,
+  "scale": 1.25
+ },
+ "papyrus": {
+  "file": "bob_papyrus.png",
+  "cols": 10,
+  "rows": 8,
+  "frames": 79,
+  "ms": 50.0,
+  "aspect": 0.8571,
+  "scale": 1.25
+ },
+ "duck": {
+  "file": "bob_duck.png",
+  "cols": 9,
+  "rows": 8,
+  "frames": 72,
+  "ms": 66.5,
+  "aspect": 0.9901,
+  "scale": 1.15
  }
 }
