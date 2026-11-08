@@ -433,9 +433,10 @@ public class AutoClickOverlayManager {
                         }
                         soon=Math.min(soon,nextDue[i]);
                     }
-                    if(!sent){
-                        for(int i=0;i<nextDue.length;i++){
-                            if(t>=nextDue[i]){soon=Math.min(soon,nextGlobalTapAt);break;}
+                    for(int i=0;i<nextDue.length;i++){
+                        if(t>=nextDue[i]){
+                            soon=Math.min(soon,nextGlobalTapAt);
+                            break;
                         }
                     }
                 }
