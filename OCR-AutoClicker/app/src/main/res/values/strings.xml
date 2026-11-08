@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">OCR Auto Clicker</string>
+    <string name="accessibility_description">Permite tocar na posição do texto reconhecido pelo OCR quando você inicia a automação.</string>
+</resources>
