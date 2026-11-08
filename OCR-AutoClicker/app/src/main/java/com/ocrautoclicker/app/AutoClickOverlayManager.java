@@ -56,9 +56,10 @@ public class AutoClickOverlayManager {
 
     public void show() {
         if (panel != null) return;
-        buildPanel();
         int count=soloMode?1:Math.max(1,Math.min(MAX_POINTS,prefs.getInt("point_count",3)));
         for(int i=0;i<count;i++) addPoint(false);
+        // Add the controls last so target markers can never sit on top of panel buttons.
+        buildPanel();
         updatePanelCount();
     }
 
