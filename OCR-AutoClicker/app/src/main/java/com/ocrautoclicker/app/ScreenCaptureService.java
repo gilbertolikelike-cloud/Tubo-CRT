@@ -33,6 +33,7 @@ import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ScreenCaptureService extends Service {
+    public static final String ACTION_REFRESH_ZONES = "com.ocrautoclicker.app.REFRESH_ZONES";
     private static final String CHANNEL_ID = "ocr_capture";
     private static final int NOTIFICATION_ID = 72;
 
@@ -50,10 +51,25 @@ public class ScreenCaptureService extends Service {
     private int screenHeight;
     private int screenDensity;
     private boolean stopped;
+    private android.content.BroadcastReceiver zoneRefreshReceiver;
 
     @Override
     public void onCreate() {
         super.onCreate();
+        zoneRefreshReceiver = new android.content.BroadcastReceiver() {
+            @Override public void onReceive(Context context, Intent intent) {
+                if (overlayManager != null) {
+                    overlayManager.destroy();
+                    overlayManager.show();
+                }
+            }
+        };
+        android.content.IntentFilter filter = new android.content.IntentFilter(ACTION_REFRESH_ZONES);
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(zoneRefreshReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(zoneRefreshReceiver, filter);
+        }
         createNotificationChannel();
         workerThread = new HandlerThread("OCR-Capture");
         workerThread.start();
@@ -168,7 +184,7 @@ public class ScreenCaptureService extends Service {
     private void handleText(Text result) {
         SharedPreferences prefs = getSharedPreferences("ocr_zones", Context.MODE_PRIVATE);
 
-        // One tap per scan: the first matching target in the first matching area wins.
+        // Each enabled area gets its own first match during this OCR scan.
         for (int zone = 0; zone < 10; zone++) {
             String wanted = prefs.getString("word_" + zone, zone == 0 ? "YES" : "");
             boolean enabled = prefs.getBoolean("enabled_" + zone, zone == 0);
@@ -176,32 +192,36 @@ public class ScreenCaptureService extends Service {
             wanted = wanted.trim().toLowerCase(Locale.ROOT);
 
             Rect area = RegionOverlayManager.getZoneRect(this, zone, screenWidth, screenHeight);
+            boolean tappedInZone = false;
+
             for (Text.TextBlock block : result.getTextBlocks()) {
                 for (Text.Line line : block.getLines()) {
-                    boolean lineMatches = line.getText().toLowerCase(Locale.ROOT).contains(wanted);
-                    if (!lineMatches) continue;
+                    String lineText = line.getText().toLowerCase(Locale.ROOT);
+                    if (!lineText.contains(wanted)) continue;
 
-                    // Prefer the individual word box so the tap lands on the word, not the whole line.
-                    boolean tappedElement = false;
                     for (Text.Element element : line.getElements()) {
                         String elementText = element.getText().toLowerCase(Locale.ROOT);
                         Rect elementBox = element.getBoundingBox();
                         if (elementBox != null && elementText.contains(wanted)
                             && area.contains(elementBox.centerX(), elementBox.centerY())) {
-                            TapAccessibilityService.tap(elementBox.centerX(), elementBox.centerY());
-                            return;
+                            tappedInZone = TapAccessibilityService.tap(
+                                elementBox.centerX(), elementBox.centerY());
+                            if (tappedInZone) break;
                         }
                     }
 
-                    // Multi-word targets may span several OCR elements; use the matching line box.
-                    Rect lineBox = line.getBoundingBox();
-                    if (!tappedElement && lineBox != null
-                        && area.contains(lineBox.centerX(), lineBox.centerY())) {
-                        TapAccessibilityService.tap(lineBox.centerX(), lineBox.centerY());
-                        return;
+                    if (!tappedInZone && wanted.contains(" ")) {
+                        Rect lineBox = line.getBoundingBox();
+                        if (lineBox != null && area.contains(lineBox.centerX(), lineBox.centerY())) {
+                            tappedInZone = TapAccessibilityService.tap(
+                                lineBox.centerX(), lineBox.centerY());
+                        }
                     }
+                    if (tappedInZone) break;
                 }
+                if (tappedInZone) break;
             }
+            // Continue through all active zones; do not return after the first match.
         }
     }
 
@@ -225,6 +245,10 @@ public class ScreenCaptureService extends Service {
     @Override
     public void onDestroy() {
         stopped = true;
+        if (zoneRefreshReceiver != null) {
+            try { unregisterReceiver(zoneRefreshReceiver); } catch (Exception ignored) { }
+            zoneRefreshReceiver = null;
+        }
         if (worker != null) worker.removeCallbacksAndMessages(null);
         if (overlayManager != null) overlayManager.destroy();
         if (virtualDisplay != null) virtualDisplay.release();
