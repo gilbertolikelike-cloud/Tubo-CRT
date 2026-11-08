@@ -116,7 +116,7 @@ public class AutoClickOverlayManager {
             // Closing the X shuts down the whole automation service, not just the panel.
             // This guarantees no hidden click loop or OCR capture keeps running.
             pauseClicks();
-            context.stopService(new android.content.Intent(context, ScreenCaptureService.class));
+            context.stopService(new android.content.Intent(context, AutoClickService.class));
         });
         root.addView(header);
 
