@@ -1,8 +1,12 @@
 name: Build OCR Auto Clicker
 
 on:
-  # Builds only when explicitly started after a complete, tested batch of changes.
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'OCR-AutoClicker/**'
+      - '.github/workflows/build-ocr.yml'
 
 concurrency:
   group: ocr-auto-clicker-build
