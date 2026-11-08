@@ -101,6 +101,21 @@ public class AutoClickOverlayManager {
         });
     }
 
+    /** While running, point overlays must let injected accessibility taps pass through to the game. */
+    private void setPointTouchability(boolean touchable) {
+        for (Point point : points) {
+            if (point.view == null || point.params == null) continue;
+            int flags = point.params.flags;
+            if (touchable) flags &= ~WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+            else flags |= WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE;
+            if (flags != point.params.flags) {
+                point.params.flags = flags;
+                try { wm.updateViewLayout(point.view, point.params); }
+                catch (Exception ignored) { }
+            }
+        }
+    }
+
     private TextView button(String label) {
         TextView t=new TextView(context); t.setText(label); t.setTextColor(Color.WHITE);
         t.setTextSize(18); t.setGravity(Gravity.CENTER); t.setPadding(9,5,9,5);
@@ -110,7 +125,10 @@ public class AutoClickOverlayManager {
     private void addPoint(boolean save) {
         boolean resume=running;
         if(resume)pauseClicks();
-        if(points.size()>=MAX_POINTS) return;
+        if(points.size()>=MAX_POINTS) {
+            if(resume) startClicks();
+            return;
+        }
         int i=points.size();
         int x=prefs.getInt("point_x_"+i,screenW/2 + ((i%5)-2)*18);
         int y=prefs.getInt("point_y_"+i,screenH/2 + ((i%7)-3)*18);
@@ -211,8 +229,18 @@ public class AutoClickOverlayManager {
     }
 
     private void startClicks() {
-        if(running||points.isEmpty())return;
-        if(!TapAccessibilityService.isReady())return;
+        if(running)return;
+        if(points.isEmpty()) {
+            android.widget.Toast.makeText(context, "Adicione pelo menos uma bolinha.", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if(!TapAccessibilityService.isReady()) {
+            android.widget.Toast.makeText(context, "Ative a acessibilidade do OCR Auto Clicker.", android.widget.Toast.LENGTH_LONG).show();
+            return;
+        }
+        // Critical: touchable overlay circles were intercepting the injected taps.
+        // Make only the click circles transparent to touch while automation is running.
+        setPointTouchability(false);
         running=true;
         nextDue=new long[points.size()];
         long now=android.os.SystemClock.elapsedRealtime();
@@ -245,6 +273,8 @@ public class AutoClickOverlayManager {
         running=false;
         if(scheduler!=null)main.removeCallbacks(scheduler);
         scheduler=null;nextDue=null;
+        // Restore touch input so the user can drag and configure the points again.
+        setPointTouchability(true);
     }
 
     public void destroy() {
