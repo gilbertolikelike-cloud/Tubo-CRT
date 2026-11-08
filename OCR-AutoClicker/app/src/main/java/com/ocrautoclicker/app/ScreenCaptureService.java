@@ -53,25 +53,41 @@ public class ScreenCaptureService extends Service {
     @Override public void onCreate() {
         super.onCreate();
         createNotificationChannel();
-        workerThread=new HandlerThread("OCR-Worker");
-        workerThread.start();
-        worker=new Handler(workerThread.getLooper());
-        recognizer=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
     }
 
     @Override public int onStartCommand(Intent intent,int flags,int startId) {
-        if(intent==null||!intent.hasExtra("captureData")){stopSelf();return START_NOT_STICKY;}
+        if(intent==null){stopSelf();return START_NOT_STICKY;}
+        boolean ocrEnabled=intent.hasExtra("captureData");
         SharedPreferences prefs=getSharedPreferences("automation",MODE_PRIVATE);
-        // Full-screen OCR is expensive: enforce a half-second floor to reduce heat and battery drain.
-        intervalMs=Math.max(500L,Math.min(86400000L,prefs.getLong("ocr_interval_ms",2000L)));
-        if(Build.VERSION.SDK_INT>=29)startForeground(NOTIFICATION_ID,buildNotification(),
-            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
-        else startForeground(NOTIFICATION_ID,buildNotification());
+
+        // The click-only path does not create a screen capture, OCR worker or ML Kit recognizer.
+        if(Build.VERSION.SDK_INT>=34) {
+            int type = ocrEnabled
+                ? android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                : android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE;
+            startForeground(NOTIFICATION_ID,buildNotification(ocrEnabled),type);
+        } else {
+            startForeground(NOTIFICATION_ID,buildNotification(ocrEnabled));
+        }
 
         DisplayMetrics metrics=new DisplayMetrics();
         WindowManager wm=(WindowManager)getSystemService(WINDOW_SERVICE);
         wm.getDefaultDisplay().getRealMetrics(metrics);
         screenWidth=metrics.widthPixels;screenHeight=metrics.heightPixels;screenDensity=metrics.densityDpi;
+
+        clickOverlay=new AutoClickOverlayManager(this,screenWidth,screenHeight);
+        clickOverlay.show();
+
+        if(!ocrEnabled) {
+            // No screen capture or text recognition in ordinary Auto Click mode.
+            return START_NOT_STICKY;
+        }
+
+        intervalMs=Math.max(500L,Math.min(86400000L,prefs.getLong("ocr_interval_ms",2000L)));
+        workerThread=new HandlerThread("OCR-Worker");
+        workerThread.start();
+        worker=new Handler(workerThread.getLooper());
+        recognizer=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
 
         MediaProjectionManager manager=(MediaProjectionManager)getSystemService(MEDIA_PROJECTION_SERVICE);
         projection=manager.getMediaProjection(intent.getIntExtra("resultCode",0),
@@ -87,8 +103,6 @@ public class ScreenCaptureService extends Service {
 
         regionOverlay=new RegionOverlayManager(this,screenWidth,screenHeight);
         regionOverlay.show();
-        clickOverlay=new AutoClickOverlayManager(this,screenWidth,screenHeight);
-        clickOverlay.show();
         worker.post(scanLoop);
         return START_NOT_STICKY;
     }
@@ -178,10 +192,12 @@ public class ScreenCaptureService extends Service {
     }
     private boolean wordChar(char c){return Character.isLetterOrDigit(c)||c=='_';}
 
-    private Notification buildNotification(){
+    private Notification buildNotification(boolean ocrEnabled){
         return new Notification.Builder(this,CHANNEL_ID)
-            .setContentTitle("OCR Auto Clicker ativo")
-            .setContentText("OCR e painel flutuante ativos. Use PARAR para encerrar.")
+            .setContentTitle("Auto Click ativo")
+            .setContentText(ocrEnabled
+                ? "Auto Click e quadrado OCR ativos."
+                : "Auto Click ativo. OCR desligado para economizar recursos.")
             .setSmallIcon(android.R.drawable.ic_menu_search).setOngoing(true).build();
     }
     private void createNotificationChannel(){
