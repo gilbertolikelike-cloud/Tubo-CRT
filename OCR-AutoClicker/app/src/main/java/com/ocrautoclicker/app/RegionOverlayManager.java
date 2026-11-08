@@ -22,7 +22,8 @@ public class RegionOverlayManager {
     private WindowManager.LayoutParams frameParams, moveParams, resizeParams;
 
     public RegionOverlayManager(Context c, int w, int h) {
-        context=c; wm=(WindowManager)c.getSystemService(Context.WINDOW_SERVICE);\n        screenW=w; screenH=h; rect=getZoneRect(c, w, h);
+        context=c; wm=(WindowManager)c.getSystemService(Context.WINDOW_SERVICE);
+        screenW=w; screenH=h; rect=getZoneRect(c, w, h);
     }
 
     public static Rect getZoneRect(Context c, int w, int h) {
