@@ -121,7 +121,8 @@ public class MainActivity extends Activity {
                 setStatus("Libere a permissão de sobreposição primeiro.");
                 return;
             }
-            stopService(new Intent(this, ScreenCaptureService.class));\n            Intent service = new Intent(this, AutoClickService.class);
+            stopService(new Intent(this, ScreenCaptureService.class));
+            Intent service = new Intent(this, AutoClickService.class);
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
             else startService(service);
             setStatus("Auto Clicker iniciado. O painel aparecerá sobre outros aplicativos.");
@@ -183,7 +184,8 @@ public class MainActivity extends Activity {
         if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
             setStatus("Libere a sobreposição antes de ativar o quadrado OCR."); return;
         }
-        stopService(new Intent(this, ScreenCaptureService.class));\n        MediaProjectionManager manager = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+        stopService(new Intent(this, ScreenCaptureService.class));
+        MediaProjectionManager manager = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
         startActivityForResult(manager.createScreenCaptureIntent(), REQUEST_OCR_CAPTURE);
     }
 
