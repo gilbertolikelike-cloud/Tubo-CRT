@@ -76,6 +76,7 @@ public class MainActivity extends Activity {
             words[i].setTextSize(15);
             row.addView(words[i], new LinearLayout.LayoutParams(0,
                 LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+            enabled[i].setOnCheckedChangeListener((button, checked) -> saveZones());
             layout.addView(row);
         }
 
@@ -159,6 +160,8 @@ public class MainActivity extends Activity {
             if (active) any = true;
         }
         editor.apply();
+        sendBroadcast(new Intent(ScreenCaptureService.ACTION_REFRESH_ZONES)
+            .setPackage(getPackageName()));
         if (!any) {
             status.setText("Ative pelo menos uma área e informe uma palavra.");
             return false;
