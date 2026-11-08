@@ -56,34 +56,18 @@ public class ScreenCaptureService extends Service {
     }
 
     @Override public int onStartCommand(Intent intent,int flags,int startId) {
-        if(intent==null){stopSelf();return START_NOT_STICKY;}
-        boolean ocrEnabled=intent.hasExtra("captureData");
+        if(intent==null||!intent.hasExtra("captureData")){stopSelf();return START_NOT_STICKY;}
         SharedPreferences prefs=getSharedPreferences("automation",MODE_PRIVATE);
-
-        // The click-only path does not create a screen capture, OCR worker or ML Kit recognizer.
-        if(Build.VERSION.SDK_INT>=34) {
-            int type = ocrEnabled
-                ? android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
-                : android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE;
-            startForeground(NOTIFICATION_ID,buildNotification(ocrEnabled),type);
-        } else {
-            startForeground(NOTIFICATION_ID,buildNotification(ocrEnabled));
-        }
+        intervalMs=Math.max(500L,Math.min(86400000L,prefs.getLong("ocr_interval_ms",2000L)));
+        if(Build.VERSION.SDK_INT>=29)startForeground(NOTIFICATION_ID,buildNotification(),
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
+        else startForeground(NOTIFICATION_ID,buildNotification());
 
         DisplayMetrics metrics=new DisplayMetrics();
         WindowManager wm=(WindowManager)getSystemService(WINDOW_SERVICE);
         wm.getDefaultDisplay().getRealMetrics(metrics);
         screenWidth=metrics.widthPixels;screenHeight=metrics.heightPixels;screenDensity=metrics.densityDpi;
 
-        clickOverlay=new AutoClickOverlayManager(this,screenWidth,screenHeight);
-        clickOverlay.show();
-
-        if(!ocrEnabled) {
-            // No screen capture or text recognition in ordinary Auto Click mode.
-            return START_NOT_STICKY;
-        }
-
-        intervalMs=Math.max(500L,Math.min(86400000L,prefs.getLong("ocr_interval_ms",2000L)));
         workerThread=new HandlerThread("OCR-Worker");
         workerThread.start();
         worker=new Handler(workerThread.getLooper());
@@ -101,6 +85,8 @@ public class ScreenCaptureService extends Service {
         projectionCallback=new MediaProjection.Callback(){@Override public void onStop(){stopSelf();}};
         projection.registerCallback(projectionCallback,worker);
 
+        clickOverlay=new AutoClickOverlayManager(this,screenWidth,screenHeight);
+        clickOverlay.show();
         regionOverlay=new RegionOverlayManager(this,screenWidth,screenHeight);
         regionOverlay.show();
         worker.post(scanLoop);
@@ -201,12 +187,10 @@ public class ScreenCaptureService extends Service {
     }
     private boolean wordChar(char c){return Character.isLetterOrDigit(c)||c=='_';}
 
-    private Notification buildNotification(boolean ocrEnabled){
+    private Notification buildNotification(){
         return new Notification.Builder(this,CHANNEL_ID)
-            .setContentTitle("Auto Click ativo")
-            .setContentText(ocrEnabled
-                ? "Auto Click e quadrado OCR ativos."
-                : "Auto Click ativo. OCR desligado para economizar recursos.")
+            .setContentTitle("OCR Auto Clicker ativo")
+            .setContentText("Auto Click e quadrado OCR ativos.")
             .setSmallIcon(android.R.drawable.ic_menu_search).setOngoing(true).build();
     }
     private void createNotificationChannel(){
