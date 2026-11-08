@@ -16,6 +16,8 @@ android {
 
     buildTypes {
         release {
+            // Temporary test signing so the generated release APK can actually be installed.
+            signingConfig signingConfigs.debug
             minifyEnabled true
             shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
