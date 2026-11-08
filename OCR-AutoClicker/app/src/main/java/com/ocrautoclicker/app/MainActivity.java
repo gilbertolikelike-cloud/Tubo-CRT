@@ -248,8 +248,11 @@ public class MainActivity extends Activity {
             root.put("version", 1);
             root.put("ocr_word", p.getString("ocr_word", "YES"));
             root.put("ocr_interval_ms", p.getLong("ocr_interval_ms", 2000L));
+            root.put("ocr_interval_unit", p.getInt("ocr_interval_unit", 1));
             root.put("click_default_interval_ms", p.getLong("click_default_interval_ms", 2000L));
             root.put("click_interval_unit", p.getInt("click_interval_unit", 1));
+            root.put("click_total", p.getLong("click_total", 0L));
+            root.put("click_history", p.getString("click_history", ""));
             root.put("click_mode", p.getString("click_mode", "custom"));
             root.put("click_timer_duration_ms", p.getLong("click_timer_duration_ms", 0L));
             root.put("click_limit", p.getLong("click_limit", 0L));
@@ -301,8 +304,11 @@ public class MainActivity extends Activity {
                     SharedPreferences.Editor edit = getSharedPreferences("automation", MODE_PRIVATE).edit();
                     edit.putString("ocr_word", root.optString("ocr_word", "YES"))
                         .putLong("ocr_interval_ms", ocrMs)
+                        .putInt("ocr_interval_unit", Math.max(0, Math.min(2, root.optInt("ocr_interval_unit", 1))))
                         .putLong("click_default_interval_ms", clickMs)
                         .putInt("click_interval_unit", Math.max(0, Math.min(2, root.optInt("click_interval_unit", 1))))
+                        .putLong("click_total", Math.max(0L, root.optLong("click_total", 0L)))
+                        .putString("click_history", root.optString("click_history", ""))
                         .putString("click_mode", mode)
                         .putLong("click_timer_duration_ms", timerMs)
                         .putLong("click_limit", limit)
@@ -320,6 +326,8 @@ public class MainActivity extends Activity {
                     }
                     edit.apply();
                     word.setText(root.optString("ocr_word", "YES"));
+                    ocrUnit.setSelection(Math.max(0, Math.min(2, root.optInt("ocr_interval_unit", ocrUnit.getSelectedItemPosition()))));
+                    clickUnit.setSelection(Math.max(0, Math.min(2, root.optInt("click_interval_unit", clickUnit.getSelectedItemPosition()))));
                     int ocrUnitValue = ocrUnit.getSelectedItemPosition();
                     long ocrMultiplier = ocrUnitValue == 0 ? 1L : (ocrUnitValue == 1 ? 1000L : 60000L);
                     long clickMultiplier = clickUnit.getSelectedItemPosition() == 0 ? 1L :
