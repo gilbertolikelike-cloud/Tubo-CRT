@@ -3,7 +3,7 @@ name: Build OCR Auto Clicker
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, 'optimize/**']
     paths:
       - 'OCR-AutoClicker/**'
       - '.github/workflows/build-ocr.yml'
@@ -37,10 +37,10 @@ jobs:
         with:
           gradle-version: 8.9
 
-      - name: Build OCR APK
-        run: gradle -p OCR-AutoClicker assembleDebug
+      - name: Build optimized release APK
+        run: gradle -p OCR-AutoClicker assembleRelease
 
       - uses: actions/upload-artifact@v4
         with:
-          name: OCR-AutoClicker-Beta-09
-          path: OCR-AutoClicker/app/build/outputs/apk/debug/app-debug.apk
+          name: OCR-AutoClicker-Beta-093
+          path: OCR-AutoClicker/app/build/outputs/apk/release/app-release-unsigned.apk

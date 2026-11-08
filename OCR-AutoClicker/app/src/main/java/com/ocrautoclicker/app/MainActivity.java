@@ -22,6 +22,7 @@ public class MainActivity extends Activity {
     private static final int REQUEST_CAPTURE = 410;
     private EditText word, ocrInterval, clickInterval;
     private Spinner ocrUnit, clickUnit, clickMode;
+    private CheckBox enableOcr;
     private TextView status;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
@@ -43,11 +44,17 @@ public class MainActivity extends Activity {
         layout.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("BETA 0.9.2 • 1 OCR + ATÉ 100 CLIQUES");
+        version.setText("BETA 0.9.3 • AUTO CLICK LEVE + OCR OPCIONAL");
         version.setTextColor(Color.GREEN);
         version.setGravity(Gravity.CENTER);
         version.setPadding(0, 8, 0, 18);
         layout.addView(version);
+
+        enableOcr = new CheckBox(this);
+        enableOcr.setText("Ativar quadrado OCR (usa captura de tela)");
+        enableOcr.setTextColor(Color.WHITE);
+        enableOcr.setChecked(prefs.getBoolean("ocr_enabled", false));
+        layout.addView(enableOcr);
 
         addLabel(layout, "PALAVRA QUE O OCR DEVE PROCURAR");
         word = new EditText(this);
@@ -132,10 +139,12 @@ public class MainActivity extends Activity {
         });
 
         Button start = new Button(this);
-        start.setText("3. INICIAR OCR + PAINEL DE CLIQUES");
+        start.setText("3. INICIAR AUTO CLICK");
         layout.addView(start);
         start.setOnClickListener(v -> {
-            if (saveSettings()) beginCapture();
+            if (!saveSettings()) return;
+            if (enableOcr.isChecked()) beginCapture();
+            else beginClickOnly();
         });
 
         Button stop = new Button(this);
@@ -143,6 +152,7 @@ public class MainActivity extends Activity {
         layout.addView(stop);
         stop.setOnClickListener(v -> {
             stopService(new Intent(this, ScreenCaptureService.class));
+            stopService(new Intent(this, AutoClickService.class));
             status.setText("Automação parada.");
         });
 
@@ -226,7 +236,8 @@ public class MainActivity extends Activity {
                 .putLong("click_interval_value", clickValue)
                 .putInt("click_interval_unit", clickSelected)
                 .putLong("click_default_interval_ms", clickMs)
-                .putString("click_mode", mode);
+                .putString("click_mode", mode)
+                .putBoolean("ocr_enabled", enableOcr.isChecked());
             // Keep legacy keys readable by older builds; new code uses separate settings.
             edit.putLong("global_interval_value", clickValue)
                 .putInt("global_unit", clickSelected)
@@ -343,6 +354,23 @@ public class MainActivity extends Activity {
             }).show();
     }
 
+    private void beginClickOnly() {
+        if (!TapAccessibilityService.isReady()) {
+            status.setText("Ative primeiro a acessibilidade.");
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
+            status.setText("Libere a permissão de sobreposição primeiro.");
+            return;
+        }
+        stopService(new Intent(this, ScreenCaptureService.class));
+        stopService(new Intent(this, AutoClickService.class));
+        Intent service = new Intent(this, AutoClickService.class);
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
+        else startService(service);
+        status.setText("Auto Click ativo. OCR desligado para economizar recursos.");
+    }
+
     private void beginCapture() {
         if (!TapAccessibilityService.isReady()) {
             status.setText("Ative primeiro a acessibilidade do OCR Auto Clicker.");
@@ -361,6 +389,7 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_CAPTURE && resultCode == RESULT_OK && data != null) {
             // Stop an earlier capture service before creating the new overlays/settings.
+            stopService(new Intent(this, AutoClickService.class));
             stopService(new Intent(this, ScreenCaptureService.class));
             Intent service = new Intent(this, ScreenCaptureService.class);
             service.putExtra("resultCode", resultCode);

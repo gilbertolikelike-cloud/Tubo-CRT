@@ -53,16 +53,11 @@ public class ScreenCaptureService extends Service {
     @Override public void onCreate() {
         super.onCreate();
         createNotificationChannel();
-        workerThread=new HandlerThread("OCR-Worker");
-        workerThread.start();
-        worker=new Handler(workerThread.getLooper());
-        recognizer=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
     }
 
     @Override public int onStartCommand(Intent intent,int flags,int startId) {
         if(intent==null||!intent.hasExtra("captureData")){stopSelf();return START_NOT_STICKY;}
         SharedPreferences prefs=getSharedPreferences("automation",MODE_PRIVATE);
-        // Full-screen OCR is expensive: enforce a half-second floor to reduce heat and battery drain.
         intervalMs=Math.max(500L,Math.min(86400000L,prefs.getLong("ocr_interval_ms",2000L)));
         if(Build.VERSION.SDK_INT>=29)startForeground(NOTIFICATION_ID,buildNotification(),
             android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
@@ -72,6 +67,11 @@ public class ScreenCaptureService extends Service {
         WindowManager wm=(WindowManager)getSystemService(WINDOW_SERVICE);
         wm.getDefaultDisplay().getRealMetrics(metrics);
         screenWidth=metrics.widthPixels;screenHeight=metrics.heightPixels;screenDensity=metrics.densityDpi;
+
+        workerThread=new HandlerThread("OCR-Worker");
+        workerThread.start();
+        worker=new Handler(workerThread.getLooper());
+        recognizer=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
 
         MediaProjectionManager manager=(MediaProjectionManager)getSystemService(MEDIA_PROJECTION_SERVICE);
         projection=manager.getMediaProjection(intent.getIntExtra("resultCode",0),
@@ -85,10 +85,10 @@ public class ScreenCaptureService extends Service {
         projectionCallback=new MediaProjection.Callback(){@Override public void onStop(){stopSelf();}};
         projection.registerCallback(projectionCallback,worker);
 
-        regionOverlay=new RegionOverlayManager(this,screenWidth,screenHeight);
-        regionOverlay.show();
         clickOverlay=new AutoClickOverlayManager(this,screenWidth,screenHeight);
         clickOverlay.show();
+        regionOverlay=new RegionOverlayManager(this,screenWidth,screenHeight);
+        regionOverlay.show();
         worker.post(scanLoop);
         return START_NOT_STICKY;
     }
@@ -119,9 +119,15 @@ public class ScreenCaptureService extends Service {
             bitmap=Bitmap.createBitmap(padded,0,0,screenWidth,screenHeight);
             padded.recycle();
             image.close();image=null;
-            Bitmap captured=bitmap;
+
+            // OCR only needs the user's search rectangle, not the entire display.
+            Rect cropArea=RegionOverlayManager.getZoneRect(this,0,screenWidth,screenHeight);
+            Bitmap cropped=Bitmap.createBitmap(bitmap,cropArea.left,cropArea.top,
+                cropArea.width(),cropArea.height());
+            if(!bitmap.isRecycled())bitmap.recycle();
+            Bitmap captured=cropped;
             recognizer.process(InputImage.fromBitmap(captured,0))
-                .addOnSuccessListener(this::handleText)
+                .addOnSuccessListener(result->handleText(result,cropArea))
                 .addOnFailureListener(error->{})
                 .addOnCompleteListener(task->{
                     try{if(!captured.isRecycled())captured.recycle();}catch(Exception ignored){}
@@ -136,12 +142,11 @@ public class ScreenCaptureService extends Service {
         }
     }
 
-    private void handleText(Text result){
+    private void handleText(Text result,Rect cropArea){
         SharedPreferences prefs=getSharedPreferences("automation",Context.MODE_PRIVATE);
         String wanted=prefs.getString("ocr_word","YES");
         if(wanted==null||wanted.trim().isEmpty())return;
         wanted=wanted.trim().toLowerCase(Locale.ROOT);
-        Rect area=RegionOverlayManager.getZoneRect(this,0,screenWidth,screenHeight);
         for(Text.TextBlock block:result.getTextBlocks()){
             for(Text.Line line:block.getLines()){
                 String lineText=line.getText().toLowerCase(Locale.ROOT);
@@ -150,14 +155,18 @@ public class ScreenCaptureService extends Service {
                     String value=element.getText().toLowerCase(Locale.ROOT);
                     Rect box=element.getBoundingBox();
                     if(box!=null&&containsWholeWord(value,wanted)
-                        &&area.contains(box.centerX(),box.centerY())){
-                        TapAccessibilityService.tapOcr(box.centerX(),box.centerY());
+                        &&box.centerX()>=0&&box.centerY()>=0
+                        &&box.centerX()<cropArea.width()&&box.centerY()<cropArea.height()){
+                        TapAccessibilityService.tapOcr(cropArea.left+box.centerX(),
+                            cropArea.top+box.centerY());
                         return;
                     }
                 }
                 Rect lineBox=line.getBoundingBox();
-                if(lineBox!=null&&area.contains(lineBox.centerX(),lineBox.centerY())){
-                    TapAccessibilityService.tapOcr(lineBox.centerX(),lineBox.centerY());
+                if(lineBox!=null&&lineBox.centerX()>=0&&lineBox.centerY()>=0
+                    &&lineBox.centerX()<cropArea.width()&&lineBox.centerY()<cropArea.height()){
+                    TapAccessibilityService.tapOcr(cropArea.left+lineBox.centerX(),
+                        cropArea.top+lineBox.centerY());
                     return;
                 }
             }
@@ -181,7 +190,7 @@ public class ScreenCaptureService extends Service {
     private Notification buildNotification(){
         return new Notification.Builder(this,CHANNEL_ID)
             .setContentTitle("OCR Auto Clicker ativo")
-            .setContentText("OCR e painel flutuante ativos. Use PARAR para encerrar.")
+            .setContentText("Auto Click e quadrado OCR ativos.")
             .setSmallIcon(android.R.drawable.ic_menu_search).setOngoing(true).build();
     }
     private void createNotificationChannel(){
