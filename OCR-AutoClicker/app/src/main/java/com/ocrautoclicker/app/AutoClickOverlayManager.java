@@ -108,7 +108,7 @@ public class AutoClickOverlayManager {
         countLabel.setTextSize(12);
         countLabel.setGravity(Gravity.CENTER);
         countLabel.setText("0 ALVOS");
-        header.addView(countLabel, new LinearLayout.LayoutParams(dp(76), dp(34)));
+        header.addView(countLabel, new LinearLayout.LayoutParams(dp(132), dp(34)));
         TextView closeButton = actionButton("×", 0xFF8A3D43);
         closeButton.setTextSize(20);
         header.addView(closeButton, new LinearLayout.LayoutParams(dp(40), dp(34)));
@@ -508,6 +508,7 @@ public class AutoClickOverlayManager {
                             nextGlobalTapAt=t+120L;
                         } else {
                             sequenceDue=t+25L;
+                            nextGlobalTapAt=t+25L;
                         }
                     }
                     soon=Math.min(sequenceDue,nextGlobalTapAt);
