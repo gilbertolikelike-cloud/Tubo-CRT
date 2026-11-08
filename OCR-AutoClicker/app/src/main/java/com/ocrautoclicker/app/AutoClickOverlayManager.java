@@ -359,7 +359,7 @@ public class AutoClickOverlayManager {
         String message = "Cliques nesta sessão: " + clickCount
             + "\nTotal registrado: " + prefs.getLong("click_total", 0L)
             + "\n\nÚltimas execuções:\n" + (history.isEmpty() ? "Nenhuma execução registrada." : history);
-        new AlertDialog.Builder(context)
+        AlertDialog dialog = new AlertDialog.Builder(context)
             .setTitle("Histórico do Auto Click")
             .setMessage(message)
             .setPositiveButton("Limpar histórico", (d, w) -> {
@@ -367,7 +367,9 @@ public class AutoClickOverlayManager {
                 android.widget.Toast.makeText(context, "Histórico limpo.", android.widget.Toast.LENGTH_SHORT).show();
             })
             .setNegativeButton("Fechar", null)
-            .show();
+            .create();
+        if (dialog.getWindow() != null) dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
+        dialog.show();
     }
 
     private void saveHistory() {
