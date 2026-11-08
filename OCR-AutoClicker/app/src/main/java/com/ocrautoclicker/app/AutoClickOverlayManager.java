@@ -239,8 +239,8 @@ public class AutoClickOverlayManager {
                     android.widget.Toast.makeText(context,"Informe de 0 a 1440 minutos.",android.widget.Toast.LENGTH_SHORT).show();
                 }
             }).create();
-        dialog.show();
         if(dialog.getWindow()!=null)dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
+        dialog.show();
     }
 
     private long globalIntervalMs() {
