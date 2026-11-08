@@ -29,9 +29,9 @@ public class AutoClickOverlayManager {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final List<Point> points = new ArrayList<>();
     private final SharedPreferences prefs;
-    private View panel, dragHandle;
-    private TextView timerButton;
-    private WindowManager.LayoutParams panelParams, dragParams;
+    private View panel;
+    private TextView timerButton, playPauseButton, countLabel, statusLabel;
+    private WindowManager.LayoutParams panelParams;
     private boolean running;
     private Runnable scheduler;
     private long nextDue[];
@@ -71,49 +71,141 @@ public class AutoClickOverlayManager {
         p.gravity=Gravity.TOP|Gravity.LEFT; p.x=x; p.y=y; return p;
     }
 
-    private void buildPanel() {
-        LinearLayout bar=new LinearLayout(context);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setPadding(5,3,5,3);
-        GradientDrawable bg=new GradientDrawable();
-        bg.setColor(0xEE202832); bg.setCornerRadius(18);
-        bar.setBackground(bg);
-        TextView plus=button("+"); TextView minus=button("−");
-        TextView play=button("▶"); TextView pause=button("⏸");
-        timerButton=button("⏱");
-        TextView count=button("1"); count.setTag("count");
-        bar.addView(plus); bar.addView(minus); bar.addView(play); bar.addView(pause);
-        bar.addView(timerButton); bar.addView(count);
-        plus.setOnClickListener(v->addPoint(true));
-        minus.setOnClickListener(v->removeLastPoint());
-        play.setOnClickListener(v->startClicks());
-        pause.setOnClickListener(v->pauseClicks());
-        timerButton.setOnClickListener(v->showTimerDialog());
-        updateTimerButton();
-        panel=bar;
-        panelParams=params(12,screenH-130,WindowManager.LayoutParams.WRAP_CONTENT,48);
-        wm.addView(panel,panelParams);
+    private int dp(float value) {
+        return Math.round(value * context.getResources().getDisplayMetrics().density);
+    }
 
-        TextView handle=button("↕");
-        handle.setTextSize(18);
-        dragHandle=handle;
-        dragParams=params(12,screenH-174,42,42);
-        wm.addView(dragHandle,dragParams);
-        dragHandle.setOnTouchListener(new View.OnTouchListener(){
-            float dx,dy; int sx,sy;
-            @Override public boolean onTouch(View v,MotionEvent e){
-                if(e.getAction()==MotionEvent.ACTION_DOWN){dx=e.getRawX();dy=e.getRawY();sx=panelParams.x;sy=panelParams.y;return true;}
-                if(e.getAction()==MotionEvent.ACTION_MOVE){
-                    panelParams.x=Math.max(0,Math.min(screenW-180,sx+(int)(e.getRawX()-dx)));
-                    panelParams.y=Math.max(0,Math.min(screenH-60,sy+(int)(e.getRawY()-dy)));
-                    wm.updateViewLayout(panel,panelParams);
-                    dragParams.x=panelParams.x;dragParams.y=panelParams.y-44;
-                    wm.updateViewLayout(dragHandle,dragParams);return true;
+    private void buildPanel() {
+        LinearLayout root = new LinearLayout(context);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(dp(8), dp(7), dp(8), dp(8));
+        GradientDrawable shell = new GradientDrawable();
+        shell.setColor(0xF21B222B);
+        shell.setCornerRadius(dp(18));
+        shell.setStroke(dp(1), 0xFF526171);
+        root.setBackground(shell);
+
+        LinearLayout header = new LinearLayout(context);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setPadding(dp(5), 0, dp(5), dp(5));
+        statusLabel = new TextView(context);
+        statusLabel.setTextColor(0xFFFFD166);
+        statusLabel.setTextSize(12);
+        statusLabel.setText("● PAUSADO");
+        statusLabel.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(statusLabel, new LinearLayout.LayoutParams(0, dp(34), 1));
+        countLabel = new TextView(context);
+        countLabel.setTextColor(Color.WHITE);
+        countLabel.setTextSize(12);
+        countLabel.setGravity(Gravity.CENTER);
+        countLabel.setText("0 ALVOS");
+        header.addView(countLabel, new LinearLayout.LayoutParams(dp(82), dp(34)));
+        root.addView(header);
+
+        header.setOnTouchListener(new View.OnTouchListener() {
+            float downX, downY;
+            int startX, startY;
+            @Override public boolean onTouch(View v, MotionEvent e) {
+                if (e.getAction() == MotionEvent.ACTION_DOWN) {
+                    downX = e.getRawX(); downY = e.getRawY();
+                    startX = panelParams.x; startY = panelParams.y;
+                    return true;
                 }
-                return true;
+                if (e.getAction() == MotionEvent.ACTION_MOVE) {
+                    panelParams.x = Math.max(0, Math.min(screenW - dp(220),
+                        startX + (int)(e.getRawX() - downX)));
+                    panelParams.y = Math.max(0, Math.min(screenH - dp(155),
+                        startY + (int)(e.getRawY() - downY)));
+                    try { wm.updateViewLayout(panel, panelParams); } catch (Exception ignored) { }
+                    return true;
+                }
+                return e.getAction() == MotionEvent.ACTION_UP
+                    || e.getAction() == MotionEvent.ACTION_CANCEL;
             }
         });
+
+        LinearLayout firstRow = new LinearLayout(context);
+        firstRow.setOrientation(LinearLayout.HORIZONTAL);
+        firstRow.setGravity(Gravity.CENTER);
+        TextView plus = actionButton("+", 0xFF147D64);
+        TextView minus = actionButton("−", 0xFF465568);
+        playPauseButton = actionButton("▶ INICIAR", 0xFF176B45);
+        firstRow.addView(plus, actionParams());
+        firstRow.addView(minus, actionParams());
+        firstRow.addView(playPauseButton, new LinearLayout.LayoutParams(dp(112), dp(50)));
+        root.addView(firstRow);
+
+        LinearLayout secondRow = new LinearLayout(context);
+        secondRow.setOrientation(LinearLayout.HORIZONTAL);
+        secondRow.setGravity(Gravity.CENTER);
+        timerButton = actionButton("⏱ TEMPO", 0xFF465568);
+        TextView stop = actionButton("■ PARAR", 0xFF8A3D43);
+        secondRow.addView(timerButton, new LinearLayout.LayoutParams(0, dp(48), 1));
+        secondRow.addView(stop, new LinearLayout.LayoutParams(0, dp(48), 1));
+        root.addView(secondRow);
+
+        plus.setOnClickListener(v -> addPoint(true));
+        minus.setOnClickListener(v -> removeLastPoint());
+        playPauseButton.setOnClickListener(v -> {
+            if (running) pauseClicks();
+            else startClicks();
+        });
+        timerButton.setOnClickListener(v -> showTimerDialog());
+        stop.setOnClickListener(v -> {
+            pauseClicks();
+            TapAccessibilityService.clearPendingNormalTaps();
+            android.widget.Toast.makeText(context, "Cliques pausados.", android.widget.Toast.LENGTH_SHORT).show();
+        });
+
+        panel = root;
+        panelParams = params(dp(12), Math.max(dp(12), screenH - dp(180)),
+            WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT);
+        wm.addView(panel, panelParams);
+        updateTimerButton();
+        updatePanelCount();
+        updateRunState();
+    }
+
+    private LinearLayout.LayoutParams actionParams() {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(dp(58), dp(50));
+        p.setMargins(dp(3), dp(3), dp(3), dp(5));
+        return p;
+    }
+
+    private TextView actionButton(String label, int color) {
+        TextView t = new TextView(context);
+        t.setText(label);
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(14);
+        t.setTypeface(null, android.graphics.Typeface.BOLD);
+        t.setGravity(Gravity.CENTER);
+        t.setMinWidth(dp(54));
+        t.setMinHeight(dp(48));
+        t.setPadding(dp(5), dp(4), dp(5), dp(4));
+        GradientDrawable shape = new GradientDrawable();
+        shape.setColor(color);
+        shape.setCornerRadius(dp(12));
+        shape.setStroke(dp(1), 0x558FFFFFF);
+        t.setBackground(shape);
+        t.setClickable(true);
+        t.setFocusable(false);
+        return t;
+    }
+
+    private void updateRunState() {
+        if (statusLabel != null) {
+            statusLabel.setText(running ? "● EXECUTANDO" : "● PAUSADO");
+            statusLabel.setTextColor(running ? 0xFF65E6A5 : 0xFFFFD166);
+        }
+        if (playPauseButton != null) {
+            playPauseButton.setText(running ? "Ⅱ PAUSAR" : "▶ INICIAR");
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(running ? 0xFF9B6325 : 0xFF176B45);
+            bg.setCornerRadius(dp(12));
+            bg.setStroke(dp(1), 0x558FFFFFF);
+            playPauseButton.setBackground(bg);
+        }
     }
 
     /** While running, point overlays must let injected accessibility taps pass through to the game. */
@@ -129,12 +221,6 @@ public class AutoClickOverlayManager {
                 catch (Exception ignored) { }
             }
         }
-    }
-
-    private TextView button(String label) {
-        TextView t=new TextView(context); t.setText(label); t.setTextColor(Color.WHITE);
-        t.setTextSize(18); t.setGravity(Gravity.CENTER); t.setPadding(9,5,9,5);
-        return t;
     }
 
     private void addPoint(boolean save) {
@@ -208,10 +294,7 @@ public class AutoClickOverlayManager {
     }
 
     private void updatePanelCount() {
-        if(panel instanceof LinearLayout){
-            TextView t=(TextView)((LinearLayout)panel).getChildAt(5);
-            t.setText(String.valueOf(points.size()));
-        }
+        if (countLabel != null) countLabel.setText(points.size() + " ALVOS");
     }
 
     private void savePoint(Point p) {
@@ -221,7 +304,7 @@ public class AutoClickOverlayManager {
 
     private void updateTimerButton() {
         if(timerButton==null)return;
-        timerButton.setText(timerDurationMs<=0?"⏱":"⏱"+Math.max(1L,timerDurationMs/60000L)+"m");
+        timerButton.setText(timerDurationMs<=0?"⏱ TEMPO":"⏱ "+Math.max(1L,timerDurationMs/60000L)+" MIN");
     }
 
     private void showTimerDialog() {
@@ -296,6 +379,7 @@ public class AutoClickOverlayManager {
         // Make only the click circles transparent to touch while automation is running.
         setPointTouchability(false);
         running=true;
+        updateRunState();
         nextDue=new long[points.size()];
         long now=android.os.SystemClock.elapsedRealtime();
         runEndsAt=timerDurationMs>0?now+timerDurationMs:0L;
@@ -347,11 +431,13 @@ public class AutoClickOverlayManager {
 
     private void pauseClicks() {
         running=false;
+        TapAccessibilityService.clearPendingNormalTaps();
         runEndsAt=0L;
         if(scheduler!=null)main.removeCallbacks(scheduler);
         scheduler=null;nextDue=null;sequenceIndex=0;sequenceDue=0L;
         // Restore touch input so the user can drag and configure the points again.
         setPointTouchability(true);
+        updateRunState();
     }
 
     public void destroy() {
@@ -359,8 +445,7 @@ public class AutoClickOverlayManager {
         for(Point p:points)try{wm.removeView(p.view);}catch(Exception ignored){}
         points.clear();
         if(panel!=null)try{wm.removeView(panel);}catch(Exception ignored){}
-        if(dragHandle!=null)try{wm.removeView(dragHandle);}catch(Exception ignored){}
-        panel=dragHandle=null;
+        panel=null;
     }
 
     private static class Point {
