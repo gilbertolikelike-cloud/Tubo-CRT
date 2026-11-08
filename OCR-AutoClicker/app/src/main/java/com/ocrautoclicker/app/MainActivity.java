@@ -393,7 +393,7 @@ public class MainActivity extends Activity {
             service.putExtra("captureData", data);
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
             else startService(service);
-            status.setText("OCR ativo. Modo "
+            status.setText("OCR ativo. Modo " +
                 (clickMode.getSelectedItemPosition()==0?"Solo":(clickMode.getSelectedItemPosition()==2?"Sequencial":"Personalizado")) + ".");
         } else status.setText("Captura de tela cancelada.");
     }
