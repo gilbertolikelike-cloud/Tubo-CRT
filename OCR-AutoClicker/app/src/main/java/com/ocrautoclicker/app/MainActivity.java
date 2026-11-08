@@ -39,7 +39,7 @@ public class MainActivity extends Activity {
         layout.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("BETA 0.7 • 1 OCR + ATÉ 100 CLIQUES");
+        version.setText("BETA 0.8 • 1 OCR + ATÉ 100 CLIQUES");
         version.setTextColor(Color.GREEN);
         version.setGravity(Gravity.CENTER);
         version.setPadding(0, 8, 0, 18);
@@ -86,7 +86,7 @@ public class MainActivity extends Activity {
         layout.addView(clickMode);
 
         TextView info = new TextView(this);
-        info.setText("O quadrado OCR continua independente nos dois modos. Solo mantém exatamente uma bolinha. Personalizado permite adicionar e remover várias pelo painel. Para mudar a velocidade de uma bolinha específica, pressione-a por alguns instantes.");
+        info.setText("O quadrado OCR continua independente nos dois modos. Solo mantém exatamente uma bolinha; Personalizado permite adicionar e remover várias pelo painel. Pressione uma bolinha para ajustar seu intervalo individual. O botão de cronômetro no painel define por quantos minutos as bolinhas vão funcionar (0 = sem limite).");
         info.setTextColor(Color.LTGRAY);
         info.setTextSize(14);
         info.setPadding(0, 10, 0, 12);
