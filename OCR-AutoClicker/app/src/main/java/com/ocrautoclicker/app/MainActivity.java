@@ -43,7 +43,7 @@ public class MainActivity extends Activity {
         layout.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("BETA 0.9.1 • 1 OCR + ATÉ 100 CLIQUES");
+        version.setText("BETA 0.9.2 • 1 OCR + ATÉ 100 CLIQUES");
         version.setTextColor(Color.GREEN);
         version.setGravity(Gravity.CENTER);
         version.setPadding(0, 8, 0, 18);
