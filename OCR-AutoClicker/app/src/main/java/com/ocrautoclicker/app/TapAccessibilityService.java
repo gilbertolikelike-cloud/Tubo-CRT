@@ -38,6 +38,25 @@ public class TapAccessibilityService extends AccessibilityService {
     public static boolean isReady() { return instance != null; }
 
     public static boolean tap(float x, float y) { return enqueue(x, y, false); }
+
+    /**
+     * Sends a normal click only when the gesture engine is completely idle.
+     * Unlike tap(), this never builds a backlog: the click scheduler retries
+     * later, so a slow device cannot accumulate stale taps from many targets.
+     * OCR taps keep their priority and are drained before the next normal tap.
+     */
+    public static boolean tapWhenIdle(float x, float y) {
+        TapAccessibilityService service = instance;
+        if (service == null || Build.VERSION.SDK_INT < 24) return false;
+        synchronized (service) {
+            if (service.gestureInProgress
+                    || !service.priorityTaps.isEmpty()
+                    || !service.normalTaps.isEmpty()) return false;
+            service.normalTaps.add(new PointF(x, y));
+            service.dispatchNextTap();
+            return true;
+        }
+    }
     /** Clears queued clicker taps immediately on pause without discarding OCR taps. */
     public static void clearPendingNormalTaps() {
         TapAccessibilityService service = instance;
