@@ -320,7 +320,14 @@ public class MainActivity extends Activity {
                     }
                     edit.apply();
                     word.setText(root.optString("ocr_word", "YES"));
-                    status.setText("Configuração importada. Salve e reinicie o painel para aplicar todos os alvos.");
+                    int ocrUnitValue = ocrUnit.getSelectedItemPosition();
+                    long ocrMultiplier = ocrUnitValue == 0 ? 1L : (ocrUnitValue == 1 ? 1000L : 60000L);
+                    long clickMultiplier = clickUnit.getSelectedItemPosition() == 0 ? 1L :
+                        (clickUnit.getSelectedItemPosition() == 1 ? 1000L : 60000L);
+                    ocrInterval.setText(String.valueOf(Math.max(1L, ocrMs / ocrMultiplier)));
+                    clickInterval.setText(String.valueOf(Math.max(1L, clickMs / clickMultiplier)));
+                    clickMode.setSelection("solo".equals(mode) ? 0 : ("sequence".equals(mode) ? 2 : 1));
+                    status.setText("Configuração importada. Inicie novamente para aplicar todos os alvos.");
                     Toast.makeText(this, "Importação concluída.", Toast.LENGTH_SHORT).show();
                 } catch (Exception e) {
                     status.setText(e.getMessage() == null ? "JSON inválido." : e.getMessage());
