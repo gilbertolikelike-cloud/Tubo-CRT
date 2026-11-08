@@ -113,7 +113,7 @@ public class AutoClickOverlayManager {
                     return true;
                 }
                 if (e.getAction() == MotionEvent.ACTION_MOVE) {
-                    panelParams.x = Math.max(0, Math.min(screenW - dp(220),
+                    panelParams.x = Math.max(0, Math.min(screenW - dp(280),
                         startX + (int)(e.getRawX() - downX)));
                     panelParams.y = Math.max(0, Math.min(screenH - dp(155),
                         startY + (int)(e.getRawY() - downY)));
@@ -186,7 +186,7 @@ public class AutoClickOverlayManager {
         GradientDrawable shape = new GradientDrawable();
         shape.setColor(color);
         shape.setCornerRadius(dp(12));
-        shape.setStroke(dp(1), 0x558FFFFFF);
+        shape.setStroke(dp(1), 0x55FFFFFF);
         t.setBackground(shape);
         t.setClickable(true);
         t.setFocusable(false);
@@ -203,7 +203,7 @@ public class AutoClickOverlayManager {
             GradientDrawable bg = new GradientDrawable();
             bg.setColor(running ? 0xFF9B6325 : 0xFF176B45);
             bg.setCornerRadius(dp(12));
-            bg.setStroke(dp(1), 0x558FFFFFF);
+            bg.setStroke(dp(1), 0x55FFFFFF);
             playPauseButton.setBackground(bg);
         }
     }
