@@ -108,6 +108,8 @@ public class AutoClickOverlayManager {
     }
 
     private void addPoint(boolean save) {
+        boolean resume=running;
+        if(resume)pauseClicks();
         if(points.size()>=MAX_POINTS) return;
         int i=points.size();
         int x=prefs.getInt("point_x_"+i,screenW/2 + ((i%5)-2)*18);
@@ -148,14 +150,18 @@ public class AutoClickOverlayManager {
         });
         points.add(point);
         if(save){prefs.edit().putInt("point_count",points.size()).apply();updatePanelCount();}
+        if(resume)startClicks();
     }
 
     private void removeLastPoint() {
+        boolean resume=running;
+        if(resume)pauseClicks();
         if(points.isEmpty()) return;
         Point p=points.remove(points.size()-1);
         try{wm.removeView(p.view);}catch(Exception ignored){}
         prefs.edit().putInt("point_count",points.size()).apply();
         updatePanelCount();
+        if(resume&&!points.isEmpty())startClicks();
     }
 
     private void updatePanelCount() {
@@ -186,7 +192,7 @@ public class AutoClickOverlayManager {
         EditText input=new EditText(context);
         input.setInputType(InputType.TYPE_CLASS_NUMBER);
         input.setText(String.valueOf(shown));
-        new AlertDialog.Builder(context)
+        AlertDialog dialog=new AlertDialog.Builder(context)
             .setTitle("Intervalo da bolinha "+(p.index+1))
             .setMessage("Unidade atual: "+(globalUnit==0?"MS":globalUnit==1?"segundos":"minutos"))
             .setView(input)
@@ -199,7 +205,9 @@ public class AutoClickOverlayManager {
                     long value=Math.max(50L,Math.min(86400000L,v*mult));
                     prefs.edit().putLong("point_interval_ms_"+p.index,value).apply();
                 }catch(Exception ignored){}
-            }).show();
+            }).create();
+        if(dialog.getWindow()!=null)dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
+        dialog.show();
     }
 
     private void startClicks() {
@@ -249,8 +257,9 @@ public class AutoClickOverlayManager {
     }
 
     private static class Point {
-        final int index; final View view; final WindowManager.LayoutParams params;
-        Point(int i,int x,int y){index=i;params=null;view=null;}
-        Point(int i,int x,int y, boolean unused){index=i;params=null;view=null;}
+        final int index;
+        View view;
+        WindowManager.LayoutParams params;
+        Point(int i){index=i;}
     }
 }
