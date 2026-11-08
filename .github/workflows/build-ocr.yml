@@ -42,5 +42,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: OCR-AutoClicker-Beta-093
-          path: OCR-AutoClicker/app/build/outputs/apk/release/app-release-unsigned.apk
+          name: OCR-AutoClicker-Beta-093-signed
+          path: OCR-AutoClicker/app/build/outputs/apk/release/app-release.apk
