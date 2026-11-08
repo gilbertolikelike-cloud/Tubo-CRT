@@ -31,11 +31,7 @@
         <service
             android:name=".ScreenCaptureService"
             android:exported="false"
-            android:foregroundServiceType="mediaProjection|specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="User-enabled floating auto-tap controls" />
-        </service>
+            android:foregroundServiceType="mediaProjection" />
 
         <service
             android:name=".TapAccessibilityService"
