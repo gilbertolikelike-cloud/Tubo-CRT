@@ -10,7 +10,11 @@ android {
         applicationId 'com.ocrautoclicker.app'
         minSdk 29
         targetSdk 35
-        versionCode 13
-        versionName '1.0.0-beta'
+        versionCode 14
+        versionName '1.1.0-beta'
     }
+}
+
+dependencies {
+    implementation 'com.google.mlkit:text-recognition:16.0.1'
 }
