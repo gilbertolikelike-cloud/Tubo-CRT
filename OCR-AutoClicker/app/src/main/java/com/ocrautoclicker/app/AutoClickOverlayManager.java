@@ -34,19 +34,19 @@ public class AutoClickOverlayManager {
     private boolean running;
     private Runnable scheduler;
     private long nextDue[];
-    private int globalUnit;
+    private int clickUnit;\n    private boolean soloMode;
 
     public AutoClickOverlayManager(Context c, int w, int h) {
         context=c; screenW=w; screenH=h;
         wm=(WindowManager)c.getSystemService(Context.WINDOW_SERVICE);
         prefs=c.getSharedPreferences("automation", Context.MODE_PRIVATE);
-        globalUnit=prefs.getInt("global_unit",1);
+        clickUnit=prefs.getInt("click_interval_unit",prefs.getInt("global_unit",1));\n        soloMode="solo".equals(prefs.getString("click_mode","custom"));
     }
 
     public void show() {
         if (panel != null) return;
         buildPanel();
-        int count=Math.max(1,Math.min(MAX_POINTS,prefs.getInt("point_count",3)));
+        int count=soloMode?1:Math.max(1,Math.min(MAX_POINTS,prefs.getInt("point_count",3)));
         for(int i=0;i<count;i++) addPoint(false);
         updatePanelCount();
     }
@@ -195,7 +195,7 @@ public class AutoClickOverlayManager {
     }
 
     private long globalIntervalMs() {
-        return Math.max(50L,Math.min(86400000L,prefs.getLong("global_interval_ms",2000L)));
+        return Math.max(50L,Math.min(86400000L,prefs.getLong("click_default_interval_ms",prefs.getLong("global_interval_ms",2000L))));
     }
 
     private long intervalFor(Point p) {
@@ -205,21 +205,21 @@ public class AutoClickOverlayManager {
 
     private void showPointInterval(Point p) {
         long ms=intervalFor(p);
-        long multiplier=globalUnit==0?1L:(globalUnit==1?1000L:60000L);
+        long multiplier=clickUnit==0?1L:(clickUnit==1?1000L:60000L);
         long shown=Math.max(1,ms/multiplier);
         EditText input=new EditText(context);
         input.setInputType(InputType.TYPE_CLASS_NUMBER);
         input.setText(String.valueOf(shown));
         AlertDialog dialog=new AlertDialog.Builder(context)
             .setTitle("Intervalo da bolinha "+(p.index+1))
-            .setMessage("Unidade atual: "+(globalUnit==0?"MS":globalUnit==1?"segundos":"minutos"))
+            .setMessage("Unidade atual: "+(clickUnit==0?"MS":clickUnit==1?"segundos":"minutos"))
             .setView(input)
             .setNegativeButton("Cancelar",null)
             .setPositiveButton("Salvar",(d,w)->{
                 try{
                     long v=Long.parseLong(input.getText().toString().trim());
                     if(v<1)return;
-                    long mult=globalUnit==0?1L:(globalUnit==1?1000L:60000L);
+                    long mult=clickUnit==0?1L:(clickUnit==1?1000L:60000L);
                     long value=Math.max(50L,Math.min(86400000L,v*mult));
                     prefs.edit().putLong("point_interval_ms_"+p.index,value).apply();
                 }catch(Exception ignored){}

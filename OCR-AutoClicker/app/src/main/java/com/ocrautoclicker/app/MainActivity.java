@@ -16,8 +16,8 @@ import android.text.InputType;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_CAPTURE = 410;
-    private EditText word, interval;
-    private Spinner unit;
+    private EditText word, ocrInterval, clickInterval;
+    private Spinner ocrUnit, clickUnit, clickMode;
     private TextView status;
 
     @Override protected void onCreate(Bundle savedInstanceState) {
@@ -39,7 +39,7 @@ public class MainActivity extends Activity {
         layout.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("BETA 0.6 • 1 OCR + ATÉ 100 CLIQUES");
+        version.setText("BETA 0.7 • 1 OCR + ATÉ 100 CLIQUES");
         version.setTextColor(Color.GREEN);
         version.setGravity(Gravity.CENTER);
         version.setPadding(0, 8, 0, 18);
@@ -54,28 +54,39 @@ public class MainActivity extends Activity {
         word.setText(prefs.getString("ocr_word", "YES"));
         layout.addView(word);
 
-        addLabel(layout, "VELOCIDADE GLOBAL / INTERVALO PADRÃO");
-        LinearLayout speedRow = new LinearLayout(this);
-        speedRow.setOrientation(LinearLayout.HORIZONTAL);
-        interval = new EditText(this);
-        interval.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        interval.setTextColor(Color.WHITE);
-        interval.setSingleLine(true);
-        interval.setText(String.valueOf(prefs.getLong("global_interval_value", 2)));
-        speedRow.addView(interval, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        unit = new Spinner(this);
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+        addLabel(layout, "VELOCIDADE DO OCR (SOMENTE LEITURA DA PALAVRA)");
+        LinearLayout ocrRow = new LinearLayout(this);
+        ocrRow.setOrientation(LinearLayout.HORIZONTAL);
+        ocrInterval = numberField(prefs.getLong("ocr_interval_value",
+            prefs.getLong("global_interval_value", 2)));
+        ocrRow.addView(ocrInterval, weighted());
+        ocrUnit = unitSpinner(prefs.getInt("ocr_interval_unit",
+            prefs.getInt("global_unit", 1)));
+        ocrRow.addView(ocrUnit, weighted());
+        layout.addView(ocrRow);
+
+        addLabel(layout, "VELOCIDADE PADRÃO DAS BOLINHAS (INDEPENDENTE DO OCR)");
+        LinearLayout clickRow = new LinearLayout(this);
+        clickRow.setOrientation(LinearLayout.HORIZONTAL);
+        clickInterval = numberField(prefs.getLong("click_interval_value",
+            prefs.getLong("global_interval_value", 2)));
+        clickRow.addView(clickInterval, weighted());
+        clickUnit = unitSpinner(prefs.getInt("click_interval_unit",
+            prefs.getInt("global_unit", 1)));
+        clickRow.addView(clickUnit, weighted());
+        layout.addView(clickRow);
+
+        addLabel(layout, "MODO DAS BOLINHAS");
+        clickMode = new Spinner(this);
+        ArrayAdapter<String> modes = new ArrayAdapter<>(this,
             android.R.layout.simple_spinner_dropdown_item,
-            new String[]{"MS (milissegundos)", "Segundos", "Minutos"});
-        unit.setAdapter(adapter);
-        unit.setSelection(prefs.getInt("global_unit", 1));
-        speedRow.addView(unit, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        layout.addView(speedRow);
+            new String[]{"Solo (1 bolinha)", "Personalizado (várias bolinhas)"});
+        clickMode.setAdapter(modes);
+        clickMode.setSelection("solo".equals(prefs.getString("click_mode", "custom")) ? 0 : 1);
+        layout.addView(clickMode);
 
         TextView info = new TextView(this);
-        info.setText("O intervalo global é usado como padrão. Toque e arraste as bolinhas para posicionar. Pressione uma bolinha por alguns instantes para configurar o intervalo individual dela.");
+        info.setText("O quadrado OCR continua independente nos dois modos. Solo mantém exatamente uma bolinha. Personalizado permite adicionar e remover várias pelo painel. Para mudar a velocidade de uma bolinha específica, pressione-a por alguns instantes.");
         info.setTextColor(Color.LTGRAY);
         info.setTextSize(14);
         info.setPadding(0, 10, 0, 12);
@@ -125,11 +136,34 @@ public class MainActivity extends Activity {
         layout.addView(status);
 
         TextView footer = new TextView(this);
-        footer.setText("No jogo, posicione o quadrado OCR sobre a palavra e use + para criar bolinhas de clique. O painel flutuante permite iniciar, pausar e ajustar a quantidade. O limite desta beta é 100 pontos.");
+        footer.setText("No jogo, posicione o quadrado OCR sobre a palavra. O painel flutuante controla as bolinhas. Teste primeiro com poucas bolinhas para conferir a resposta do jogo.");
         footer.setTextColor(Color.LTGRAY);
         footer.setTextSize(13);
         layout.addView(footer);
         setContentView(scroll);
+    }
+
+    private EditText numberField(long value) {
+        EditText field = new EditText(this);
+        field.setInputType(InputType.TYPE_CLASS_NUMBER);
+        field.setTextColor(Color.WHITE);
+        field.setSingleLine(true);
+        field.setText(String.valueOf(Math.max(1L, value)));
+        return field;
+    }
+
+    private LinearLayout.LayoutParams weighted() {
+        return new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+    }
+
+    private Spinner unitSpinner(int selected) {
+        Spinner spinner = new Spinner(this);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+            android.R.layout.simple_spinner_dropdown_item,
+            new String[]{"MS (milissegundos)", "Segundos", "Minutos"});
+        spinner.setAdapter(adapter);
+        spinner.setSelection(Math.max(0, Math.min(2, selected)));
+        return spinner;
     }
 
     private void addLabel(LinearLayout layout, String value) {
@@ -140,36 +174,52 @@ public class MainActivity extends Activity {
         layout.addView(label);
     }
 
+    private long readInterval(EditText field, String label) {
+        long value = Long.parseLong(field.getText().toString().trim());
+        if (value < 1) throw new IllegalArgumentException(label);
+        return value;
+    }
+
+    private long toMillis(long value, int selectedUnit) {
+        long multiplier = selectedUnit == 0 ? 1L : (selectedUnit == 1 ? 1000L : 60000L);
+        if (value > Long.MAX_VALUE / multiplier) throw new IllegalArgumentException("Intervalo muito grande.");
+        return Math.max(50L, Math.min(86400000L, value * multiplier));
+    }
+
     private boolean saveSettings() {
         String target = word.getText().toString().trim();
         if (target.isEmpty()) {
             status.setText("Digite a palavra que o OCR deve procurar.");
             return false;
         }
-        long value;
         try {
-            value = Long.parseLong(interval.getText().toString().trim());
-            if (value < 1) throw new NumberFormatException();
+            long ocrValue = readInterval(ocrInterval, "Informe a velocidade do OCR.");
+            long clickValue = readInterval(clickInterval, "Informe a velocidade das bolinhas.");
+            int ocrSelected = ocrUnit.getSelectedItemPosition();
+            int clickSelected = clickUnit.getSelectedItemPosition();
+            long ocrMs = toMillis(ocrValue, ocrSelected);
+            long clickMs = toMillis(clickValue, clickSelected);
+            String mode = clickMode.getSelectedItemPosition() == 0 ? "solo" : "custom";
+            SharedPreferences.Editor edit = getSharedPreferences("automation", MODE_PRIVATE).edit();
+            edit.putString("ocr_word", target)
+                .putLong("ocr_interval_value", ocrValue)
+                .putInt("ocr_interval_unit", ocrSelected)
+                .putLong("ocr_interval_ms", ocrMs)
+                .putLong("click_interval_value", clickValue)
+                .putInt("click_interval_unit", clickSelected)
+                .putLong("click_default_interval_ms", clickMs)
+                .putString("click_mode", mode);
+            // Keep legacy keys readable by older builds; new code uses separate settings.
+            edit.putLong("global_interval_value", clickValue)
+                .putInt("global_unit", clickSelected)
+                .putLong("global_interval_ms", clickMs);
+            edit.apply();
+            status.setText("Configurações salvas. OCR e bolinhas têm velocidades separadas.");
+            return true;
         } catch (Exception e) {
-            status.setText("Informe um intervalo numérico maior que zero.");
+            status.setText(e.getMessage() == null ? "Confira os intervalos informados." : e.getMessage());
             return false;
         }
-        int selectedUnit = unit.getSelectedItemPosition();
-        long multiplier = selectedUnit == 0 ? 1L : (selectedUnit == 1 ? 1000L : 60000L);
-        if (value > Long.MAX_VALUE / multiplier) {
-            status.setText("Esse intervalo é muito grande.");
-            return false;
-        }
-        long intervalMs = Math.max(50L, Math.min(86400000L, value * multiplier));
-        getSharedPreferences("automation", MODE_PRIVATE).edit()
-            .putString("ocr_word", target)
-            .putLong("global_interval_value", value)
-            .putInt("global_unit", selectedUnit)
-            .putLong("global_interval_ms", intervalMs)
-            .putLong("ocr_interval_ms", intervalMs)
-            .apply();
-        status.setText("Configurações salvas.");
-        return true;
     }
 
     private void beginCapture() {
@@ -189,12 +239,15 @@ public class MainActivity extends Activity {
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_CAPTURE && resultCode == RESULT_OK && data != null) {
+            // Stop an earlier capture service before creating the new overlays/settings.
+            stopService(new Intent(this, ScreenCaptureService.class));
             Intent service = new Intent(this, ScreenCaptureService.class);
             service.putExtra("resultCode", resultCode);
             service.putExtra("captureData", data);
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
             else startService(service);
-            status.setText("OCR ativo. Use o painel flutuante para controlar as bolinhas.");
+            status.setText("OCR ativo. Modo " +
+                (clickMode.getSelectedItemPosition() == 0 ? "Solo" : "Personalizado") + ".");
         } else status.setText("Captura de tela cancelada.");
     }
 }
