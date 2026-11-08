@@ -197,12 +197,12 @@ public class ScreenCaptureService extends Service {
             for (Text.TextBlock block : result.getTextBlocks()) {
                 for (Text.Line line : block.getLines()) {
                     String lineText = line.getText().toLowerCase(Locale.ROOT);
-                    if (!lineText.contains(wanted)) continue;
+                    if (!containsWholeWord(lineText, wanted)) continue;
 
                     for (Text.Element element : line.getElements()) {
                         String elementText = element.getText().toLowerCase(Locale.ROOT);
                         Rect elementBox = element.getBoundingBox();
-                        if (elementBox != null && elementText.contains(wanted)
+                        if (elementBox != null && containsWholeWord(elementText, wanted)
                             && area.contains(elementBox.centerX(), elementBox.centerY())) {
                             tappedInZone = TapAccessibilityService.tap(
                                 elementBox.centerX(), elementBox.centerY());
@@ -223,6 +223,25 @@ public class ScreenCaptureService extends Service {
             }
             // Continue through all active zones; do not return after the first match.
         }
+    }
+
+    // Match a complete word/phrase, not just a substring (YES must not match Yeshua).
+    private boolean containsWholeWord(String text, String wanted) {
+        if (text == null || wanted == null || wanted.isEmpty()) return false;
+        int from = 0;
+        while (true) {
+            int index = text.indexOf(wanted, from);
+            if (index < 0) return false;
+            int end = index + wanted.length();
+            boolean leftBoundary = index == 0 || !isWordCharacter(text.charAt(index - 1));
+            boolean rightBoundary = end >= text.length() || !isWordCharacter(text.charAt(end));
+            if (leftBoundary && rightBoundary) return true;
+            from = index + 1;
+        }
+    }
+
+    private boolean isWordCharacter(char ch) {
+        return Character.isLetterOrDigit(ch) || ch == '_';
     }
 
     private Notification buildNotification() {
