@@ -19,6 +19,9 @@ import android.text.InputType;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 /** Floating click points and a compact control panel. All view changes run on the main thread. */
 public class AutoClickOverlayManager {
@@ -31,6 +34,8 @@ public class AutoClickOverlayManager {
     private final SharedPreferences prefs;
     private View panel;
     private TextView timerButton, playPauseButton, countLabel, statusLabel;
+    private TextView limitButton, historyButton;
+    private long clickCount, clickLimit;
     private WindowManager.LayoutParams panelParams;
     private boolean running;
     private Runnable scheduler;
@@ -53,6 +58,7 @@ public class AutoClickOverlayManager {
         soloMode="solo".equals(mode);
         sequenceMode="sequence".equals(mode);
         timerDurationMs=Math.max(0L,Math.min(86400000L,prefs.getLong("click_timer_duration_ms",0L)));
+        clickLimit=Math.max(0L,Math.min(10000000L,prefs.getLong("click_limit",0L)));
     }
 
     public void show() {
@@ -156,6 +162,15 @@ public class AutoClickOverlayManager {
         secondRow.addView(stop, new LinearLayout.LayoutParams(0, dp(48), 1));
         root.addView(secondRow);
 
+        LinearLayout thirdRow = new LinearLayout(context);
+        thirdRow.setOrientation(LinearLayout.HORIZONTAL);
+        thirdRow.setGravity(Gravity.CENTER);
+        limitButton = actionButton("LIMITE", 0xFF465568);
+        historyButton = actionButton("HISTÓRICO", 0xFF465568);
+        thirdRow.addView(limitButton, new LinearLayout.LayoutParams(0, dp(44), 1));
+        thirdRow.addView(historyButton, new LinearLayout.LayoutParams(0, dp(44), 1));
+        root.addView(thirdRow);
+
         plus.setOnClickListener(v -> addPoint(true));
         minus.setOnClickListener(v -> removeLastPoint());
         playPauseButton.setOnClickListener(v -> {
@@ -163,6 +178,8 @@ public class AutoClickOverlayManager {
             else startClicks();
         });
         timerButton.setOnClickListener(v -> showTimerDialog());
+        limitButton.setOnClickListener(v -> showLimitDialog());
+        historyButton.setOnClickListener(v -> showHistoryDialog());
         stop.setOnClickListener(v -> {
             pauseClicks();
             TapAccessibilityService.clearPendingNormalTaps();
@@ -174,6 +191,7 @@ public class AutoClickOverlayManager {
             WindowManager.LayoutParams.WRAP_CONTENT, WindowManager.LayoutParams.WRAP_CONTENT);
         wm.addView(panel, panelParams);
         updateTimerButton();
+        updateLimitButton();
         updatePanelCount();
         updateRunState();
     }
@@ -305,7 +323,69 @@ public class AutoClickOverlayManager {
     }
 
     private void updatePanelCount() {
-        if (countLabel != null) countLabel.setText(points.size() + " ALVOS");
+        if (countLabel != null) countLabel.setText(points.size() + " ALVOS • " + clickCount + " CLIQUES");
+    }
+
+    private void updateLimitButton() {
+        if (limitButton != null) limitButton.setText(clickLimit <= 0 ? "LIMITE: OFF" : "LIMITE: " + clickLimit);
+    }
+
+    private void showLimitDialog() {
+        EditText input = new EditText(context);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setText(String.valueOf(clickLimit));
+        AlertDialog dialog = new AlertDialog.Builder(context)
+            .setTitle("Limite de cliques")
+            .setMessage("Quantidade máxima nesta execução. Use 0 para ilimitado.")
+            .setView(input)
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Salvar", (d, w) -> {
+                try {
+                    long value = Long.parseLong(input.getText().toString().trim());
+                    if (value < 0 || value > 10000000L) throw new NumberFormatException();
+                    clickLimit = value;
+                    prefs.edit().putLong("click_limit", clickLimit).apply();
+                    updateLimitButton();
+                } catch (Exception ignored) {
+                    android.widget.Toast.makeText(context, "Use um valor entre 0 e 10.000.000.", android.widget.Toast.LENGTH_SHORT).show();
+                }
+            }).create();
+        if (dialog.getWindow() != null) dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
+        dialog.show();
+    }
+
+    private void showHistoryDialog() {
+        String history = prefs.getString("click_history", "");
+        String message = "Cliques nesta sessão: " + clickCount
+            + "\nTotal registrado: " + prefs.getLong("click_total", 0L)
+            + "\n\nÚltimas execuções:\n" + (history.isEmpty() ? "Nenhuma execução registrada." : history);
+        new AlertDialog.Builder(context)
+            .setTitle("Histórico do Auto Click")
+            .setMessage(message)
+            .setPositiveButton("Limpar histórico", (d, w) -> {
+                prefs.edit().remove("click_history").putLong("click_total", 0L).apply();
+                android.widget.Toast.makeText(context, "Histórico limpo.", android.widget.Toast.LENGTH_SHORT).show();
+            })
+            .setNegativeButton("Fechar", null)
+            .show();
+    }
+
+    private void saveHistory() {
+        if (clickCount <= 0) return;
+        String stamp = new SimpleDateFormat("dd/MM HH:mm", Locale.getDefault()).format(new Date());
+        String old = prefs.getString("click_history", "");
+        String line = stamp + " — " + clickCount + " cliques";
+        String next = line + (old.isEmpty() ? "" : "\n" + old);
+        String[] rows = next.split("\n");
+        StringBuilder limited = new StringBuilder();
+        for (int i = 0; i < Math.min(20, rows.length); i++) {
+            if (i > 0) limited.append('\n');
+            limited.append(rows[i]);
+        }
+        prefs.edit().putString("click_history", limited.toString())
+            .putLong("click_total", prefs.getLong("click_total", 0L) + clickCount).apply();
+        clickCount = 0L;
+        updatePanelCount();
     }
 
     private void savePoint(Point p) {
@@ -390,6 +470,8 @@ public class AutoClickOverlayManager {
         // Make only the click circles transparent to touch while automation is running.
         setPointTouchability(false);
         running=true;
+        clickCount=0L;
+        updatePanelCount();
         updateRunState();
         nextDue=new long[points.size()];
         long now=android.os.SystemClock.elapsedRealtime();
@@ -407,16 +489,26 @@ public class AutoClickOverlayManager {
                     android.widget.Toast.makeText(context,"Tempo configurado finalizado.",android.widget.Toast.LENGTH_SHORT).show();
                     return;
                 }
+                if(clickLimit>0L&&clickCount>=clickLimit){
+                    pauseClicks();
+                    android.widget.Toast.makeText(context,"Limite de cliques atingido.",android.widget.Toast.LENGTH_SHORT).show();
+                    return;
+                }
                 long soon=Long.MAX_VALUE;
                 if(sequenceMode){
                     // Sequencial: respeita o intervalo individual e limita a taxa total.
                     if(!points.isEmpty()&&t>=sequenceDue&&t>=nextGlobalTapAt){
                         if(sequenceIndex>=points.size())sequenceIndex=0;
                         Point p=points.get(sequenceIndex);
-                        TapAccessibilityService.tap(p.params.x+22,p.params.y+22);
-                        sequenceIndex=(sequenceIndex+1)%points.size();
-                        sequenceDue=t+intervalFor(p);
-                        nextGlobalTapAt=t+120L;
+                        if (TapAccessibilityService.tapWhenIdle(p.params.x+22,p.params.y+22)) {
+                            clickCount++;
+                            updatePanelCount();
+                            sequenceIndex=(sequenceIndex+1)%points.size();
+                            sequenceDue=t+intervalFor(p);
+                            nextGlobalTapAt=t+120L;
+                        } else {
+                            sequenceDue=t+25L;
+                        }
                     }
                     soon=Math.min(sequenceDue,nextGlobalTapAt);
                 }else{
@@ -426,10 +518,15 @@ public class AutoClickOverlayManager {
                         if(i>=nextDue.length)break;
                         Point p=points.get(i);
                         if(!sent&&t>=nextDue[i]&&t>=nextGlobalTapAt){
-                            TapAccessibilityService.tap(p.params.x+22,p.params.y+22);
-                            nextDue[i]=t+intervalFor(p);
-                            nextGlobalTapAt=t+120L;
-                            sent=true;
+                            if (TapAccessibilityService.tapWhenIdle(p.params.x+22,p.params.y+22)) {
+                                clickCount++;
+                                updatePanelCount();
+                                nextDue[i]=t+intervalFor(p);
+                                nextGlobalTapAt=t+120L;
+                                sent=true;
+                            } else {
+                                nextDue[i]=t+25L;
+                            }
                         }
                         soon=Math.min(soon,nextDue[i]);
                     }
@@ -450,8 +547,10 @@ public class AutoClickOverlayManager {
     }
 
     private void pauseClicks() {
+        boolean wasRunning = running;
         running=false;
         TapAccessibilityService.clearPendingNormalTaps();
+        if (wasRunning) saveHistory();
         runEndsAt=0L;
         if(scheduler!=null)main.removeCallbacks(scheduler);
         scheduler=null;nextDue=null;sequenceIndex=0;sequenceDue=0L;nextGlobalTapAt=0L;
