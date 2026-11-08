@@ -3,6 +3,7 @@ package com.ocrautoclicker.app;
 import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
 import android.os.Build;
@@ -11,21 +12,25 @@ import android.provider.Settings;
 import android.graphics.Color;
 import android.view.Gravity;
 import android.widget.*;
+import android.text.InputType;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_CAPTURE = 410;
-    private EditText target;
     private EditText interval;
     private TextView status;
+    private EditText[] words = new EditText[10];
+    private CheckBox[] enabled = new CheckBox[10];
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        ScrollView scroll = new ScrollView(this);
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(32, 36, 32, 24);
+        layout.setPadding(28, 28, 28, 24);
         layout.setBackgroundColor(Color.rgb(20, 24, 30));
+        scroll.addView(layout);
 
         TextView title = new TextView(this);
         title.setText("OCR AUTO CLICKER");
@@ -35,33 +40,62 @@ public class MainActivity extends Activity {
         layout.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("BETA 0.2 • OCR REAL");
+        version.setText("BETA 0.3 • ATÉ 10 ÁREAS");
         version.setTextColor(Color.GREEN);
         version.setGravity(Gravity.CENTER);
-        version.setPadding(0, 8, 0, 24);
+        version.setPadding(0, 8, 0, 20);
         layout.addView(version);
 
-        addLabel(layout, "Texto que deseja procurar:");
-        target = new EditText(this);
-        target.setSingleLine(true);
-        target.setHint("Exemplo: YES");
-        target.setTextColor(Color.WHITE);
-        target.setHintTextColor(Color.GRAY);
-        layout.addView(target);
+        TextView intro = new TextView(this);
+        intro.setText("Configure uma palavra para cada área. Marque as áreas que deseja usar. Os quadrados poderão ser movidos e redimensionados quando o OCR estiver iniciado.");
+        intro.setTextColor(Color.LTGRAY);
+        intro.setTextSize(14);
+        layout.addView(intro);
+
+        SharedPreferences prefs = getSharedPreferences("ocr_zones", MODE_PRIVATE);
+        for (int i = 0; i < 10; i++) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(0, 8, 0, 2);
+
+            enabled[i] = new CheckBox(this);
+            enabled[i].setText("Área " + (i + 1));
+            enabled[i].setTextColor(Color.WHITE);
+            enabled[i].setButtonTintList(android.content.res.ColorStateList.valueOf(Color.GREEN));
+            enabled[i].setChecked(prefs.getBoolean("enabled_" + i, i == 0));
+            row.addView(enabled[i], new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+            words[i] = new EditText(this);
+            words[i].setSingleLine(true);
+            words[i].setTextColor(Color.WHITE);
+            words[i].setHintTextColor(Color.GRAY);
+            words[i].setHint(i == 0 ? "YES" : "Palavra para procurar");
+            words[i].setText(prefs.getString("word_" + i, i == 0 ? "YES" : ""));
+            words[i].setTextSize(15);
+            row.addView(words[i], new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+            layout.addView(row);
+        }
 
         addLabel(layout, "Intervalo entre leituras (segundos):");
         interval = new EditText(this);
         interval.setText("2");
-        interval.setInputType(2);
+        interval.setInputType(InputType.TYPE_CLASS_NUMBER);
         interval.setTextColor(Color.WHITE);
         layout.addView(interval);
+
+        Button save = new Button(this);
+        save.setText("SALVAR CONFIGURAÇÕES");
+        layout.addView(save);
+        save.setOnClickListener(v -> saveZones());
 
         Button accessibility = new Button(this);
         accessibility.setText("1. ATIVAR ACESSIBILIDADE");
         layout.addView(accessibility);
-        accessibility.setOnClickListener(v -> {
-            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
-        });
+        accessibility.setOnClickListener(v ->
+            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
 
         Button overlay = new Button(this);
         overlay.setText("2. PERMITIR SOBREPOR OUTROS APPS");
@@ -79,7 +113,9 @@ public class MainActivity extends Activity {
         Button start = new Button(this);
         start.setText("3. INICIAR OCR E CLIQUES");
         layout.addView(start);
-        start.setOnClickListener(v -> beginCapture());
+        start.setOnClickListener(v -> {
+            if (saveZones()) beginCapture();
+        });
 
         Button stop = new Button(this);
         stop.setText("PARAR");
@@ -92,16 +128,16 @@ public class MainActivity extends Activity {
         status = new TextView(this);
         status.setText("Status: aguardando configuração");
         status.setTextColor(Color.GREEN);
-        status.setPadding(0, 20, 0, 12);
+        status.setPadding(0, 18, 0, 12);
         layout.addView(status);
 
         TextView note = new TextView(this);
-        note.setText("A captura da tela exige sua confirmação. O Android também exige que você ative manualmente o serviço de acessibilidade. O OCR procura o texto na tela inteira e toca no centro da palavra/frase encontrada. Mantenha o app visível na notificação para poder parar.");
+        note.setText("Ao iniciar, confirme a captura de tela. Os contornos mostram as áreas de busca. Use a bolinha com + para mover e a bolinha diagonal para redimensionar. Os controles ficam nas bordas para não bloquear os toques dentro da área.");
         note.setTextColor(Color.LTGRAY);
         note.setTextSize(13);
         layout.addView(note);
 
-        setContentView(layout);
+        setContentView(scroll);
     }
 
     private void addLabel(LinearLayout layout, String value) {
@@ -112,13 +148,27 @@ public class MainActivity extends Activity {
         layout.addView(label);
     }
 
-    private void beginCapture() {
-        String word = target.getText().toString().trim();
-        String seconds = interval.getText().toString().trim();
-        if (word.isEmpty()) {
-            status.setText("Digite o texto que deseja procurar.");
-            return;
+    private boolean saveZones() {
+        SharedPreferences.Editor editor = getSharedPreferences("ocr_zones", MODE_PRIVATE).edit();
+        boolean any = false;
+        for (int i = 0; i < 10; i++) {
+            String word = words[i].getText().toString().trim();
+            boolean active = enabled[i].isChecked() && !word.isEmpty();
+            editor.putString("word_" + i, word);
+            editor.putBoolean("enabled_" + i, active);
+            if (active) any = true;
         }
+        editor.apply();
+        if (!any) {
+            status.setText("Ative pelo menos uma área e informe uma palavra.");
+            return false;
+        }
+        status.setText("Configurações salvas.");
+        return true;
+    }
+
+    private void beginCapture() {
+        String seconds = interval.getText().toString().trim();
         int delay;
         try {
             delay = Integer.parseInt(seconds);
@@ -135,7 +185,6 @@ public class MainActivity extends Activity {
             status.setText("Libere a permissão de sobreposição primeiro.");
             return;
         }
-
         Intent request = ((MediaProjectionManager)
             getSystemService(Context.MEDIA_PROJECTION_SERVICE)).createScreenCaptureIntent();
         startActivityForResult(request, REQUEST_CAPTURE);
@@ -148,11 +197,10 @@ public class MainActivity extends Activity {
             Intent service = new Intent(this, ScreenCaptureService.class);
             service.putExtra("resultCode", resultCode);
             service.putExtra("captureData", data);
-            service.putExtra("target", target.getText().toString().trim());
             service.putExtra("interval", Integer.parseInt(interval.getText().toString().trim()));
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
             else startService(service);
-            status.setText("OCR iniciado. Acompanhe a notificação para parar.");
+            status.setText("OCR iniciado. Arraste os controles dos quadrados para ajustar as áreas.");
         } else {
             status.setText("Captura de tela cancelada.");
         }
