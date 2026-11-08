@@ -13,6 +13,10 @@ import android.graphics.Color;
 import android.view.Gravity;
 import android.widget.*;
 import android.text.InputType;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_CAPTURE = 410;
@@ -97,6 +101,18 @@ public class MainActivity extends Activity {
         save.setText("SALVAR CONFIGURAÇÕES");
         layout.addView(save);
         save.setOnClickListener(v -> saveSettings());
+
+        LinearLayout transferRow = new LinearLayout(this);
+        transferRow.setOrientation(LinearLayout.HORIZONTAL);
+        Button export = new Button(this);
+        export.setText("EXPORTAR");
+        Button importConfig = new Button(this);
+        importConfig.setText("IMPORTAR");
+        transferRow.addView(export, weighted());
+        transferRow.addView(importConfig, weighted());
+        layout.addView(transferRow);
+        export.setOnClickListener(v -> exportConfig());
+        importConfig.setOnClickListener(v -> importConfig());
 
         Button accessibility = new Button(this);
         accessibility.setText("1. ATIVAR ACESSIBILIDADE");
@@ -222,6 +238,94 @@ public class MainActivity extends Activity {
             status.setText(e.getMessage() == null ? "Confira os intervalos informados." : e.getMessage());
             return false;
         }
+    }
+
+    private void exportConfig() {
+        try {
+            SharedPreferences p = getSharedPreferences("automation", MODE_PRIVATE);
+            JSONObject root = new JSONObject();
+            root.put("format", "tubo-ocr-config");
+            root.put("version", 1);
+            root.put("ocr_word", p.getString("ocr_word", "YES"));
+            root.put("ocr_interval_ms", p.getLong("ocr_interval_ms", 2000L));
+            root.put("click_default_interval_ms", p.getLong("click_default_interval_ms", 2000L));
+            root.put("click_interval_unit", p.getInt("click_interval_unit", 1));
+            root.put("click_mode", p.getString("click_mode", "custom"));
+            root.put("click_timer_duration_ms", p.getLong("click_timer_duration_ms", 0L));
+            root.put("click_limit", p.getLong("click_limit", 0L));
+            int count = Math.max(1, Math.min(100, p.getInt("point_count", 3)));
+            root.put("point_count", count);
+            JSONArray points = new JSONArray();
+            for (int i = 0; i < count; i++) {
+                JSONObject point = new JSONObject();
+                point.put("x", p.getInt("point_x_" + i, -1));
+                point.put("y", p.getInt("point_y_" + i, -1));
+                point.put("interval_ms", p.getLong("point_interval_ms_" + i, 0L));
+                points.put(point);
+            }
+            root.put("points", points);
+            String json = root.toString(2);
+            ClipboardManager clipboard = (ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
+            clipboard.setPrimaryClip(ClipData.newPlainText("Tubo OCR Auto Clicker", json));
+            status.setText("Configuração exportada para a área de transferência.");
+            Toast.makeText(this, "JSON copiado. Guarde em um lugar seguro.", Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            status.setText("Não foi possível exportar a configuração.");
+        }
+    }
+
+    private void importConfig() {
+        EditText input = new EditText(this);
+        input.setMinLines(5);
+        input.setGravity(Gravity.TOP | Gravity.START);
+        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        new android.app.AlertDialog.Builder(this)
+            .setTitle("Importar configuração")
+            .setMessage("Cole aqui o JSON exportado pelo OCR Auto Clicker.")
+            .setView(input)
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("IMPORTAR", (dialog, which) -> {
+                try {
+                    JSONObject root = new JSONObject(input.getText().toString().trim());
+                    if (!"tubo-ocr-config".equals(root.optString("format"))) {
+                        throw new IllegalArgumentException("Arquivo de configuração inválido.");
+                    }
+                    String mode = root.optString("click_mode", "custom");
+                    if (!"solo".equals(mode) && !"custom".equals(mode) && !"sequence".equals(mode)) mode = "custom";
+                    long ocrMs = Math.max(500L, Math.min(86400000L, root.optLong("ocr_interval_ms", 2000L)));
+                    long clickMs = Math.max(250L, Math.min(86400000L, root.optLong("click_default_interval_ms", 2000L)));
+                    long timerMs = Math.max(0L, Math.min(86400000L, root.optLong("click_timer_duration_ms", 0L)));
+                    long limit = Math.max(0L, Math.min(10000000L, root.optLong("click_limit", 0L)));
+                    int count = Math.max(1, Math.min(100, root.optInt("point_count", 3)));
+                    JSONArray points = root.optJSONArray("points");
+                    SharedPreferences.Editor edit = getSharedPreferences("automation", MODE_PRIVATE).edit();
+                    edit.putString("ocr_word", root.optString("ocr_word", "YES"))
+                        .putLong("ocr_interval_ms", ocrMs)
+                        .putLong("click_default_interval_ms", clickMs)
+                        .putInt("click_interval_unit", Math.max(0, Math.min(2, root.optInt("click_interval_unit", 1))))
+                        .putString("click_mode", mode)
+                        .putLong("click_timer_duration_ms", timerMs)
+                        .putLong("click_limit", limit)
+                        .putInt("point_count", count);
+                    for (int i = 0; i < count; i++) {
+                        JSONObject point = points != null && i < points.length() ? points.optJSONObject(i) : null;
+                        if (point == null) continue;
+                        int x = point.optInt("x", -1);
+                        int y = point.optInt("y", -1);
+                        if (x >= 0) edit.putInt("point_x_" + i, x);
+                        if (y >= 0) edit.putInt("point_y_" + i, y);
+                        long interval = point.optLong("interval_ms", 0L);
+                        if (interval > 0L) edit.putLong("point_interval_ms_" + i, Math.max(250L, Math.min(86400000L, interval)));
+                        else edit.remove("point_interval_ms_" + i);
+                    }
+                    edit.apply();
+                    word.setText(root.optString("ocr_word", "YES"));
+                    status.setText("Configuração importada. Salve e reinicie o painel para aplicar todos os alvos.");
+                    Toast.makeText(this, "Importação concluída.", Toast.LENGTH_SHORT).show();
+                } catch (Exception e) {
+                    status.setText(e.getMessage() == null ? "JSON inválido." : e.getMessage());
+                }
+            }).show();
     }
 
     private void beginCapture() {
