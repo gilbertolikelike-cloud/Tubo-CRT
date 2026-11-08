@@ -42,6 +42,7 @@ public class AutoClickOverlayManager {
     private long sequenceDue;
     private long timerDurationMs;
     private long runEndsAt;
+    private long nextGlobalTapAt;
 
     public AutoClickOverlayManager(Context c, int w, int h) {
         context=c; screenW=w; screenH=h;
@@ -101,7 +102,16 @@ public class AutoClickOverlayManager {
         countLabel.setTextSize(12);
         countLabel.setGravity(Gravity.CENTER);
         countLabel.setText("0 ALVOS");
-        header.addView(countLabel, new LinearLayout.LayoutParams(dp(82), dp(34)));
+        header.addView(countLabel, new LinearLayout.LayoutParams(dp(76), dp(34)));
+        TextView closeButton = actionButton("×", 0xFF8A3D43);
+        closeButton.setTextSize(20);
+        header.addView(closeButton, new LinearLayout.LayoutParams(dp(40), dp(34)));
+        closeButton.setOnClickListener(v -> {
+            // Closing the X shuts down the whole automation service, not just the panel.
+            // This guarantees no hidden click loop or OCR capture keeps running.
+            pauseClicks();
+            context.stopService(new android.content.Intent(context, ScreenCaptureService.class));
+        });
         root.addView(header);
 
         header.setOnTouchListener(new View.OnTouchListener() {
@@ -333,11 +343,11 @@ public class AutoClickOverlayManager {
     }
 
     private long globalIntervalMs() {
-        return Math.max(50L,Math.min(86400000L,prefs.getLong("click_default_interval_ms",prefs.getLong("global_interval_ms",2000L))));
+        return Math.max(250L,Math.min(86400000L,prefs.getLong("click_default_interval_ms",prefs.getLong("global_interval_ms",2000L))));
     }
 
     private long intervalFor(Point p) {
-        return Math.max(50L,Math.min(86400000L,
+        return Math.max(250L,Math.min(86400000L,
             prefs.getLong("point_interval_ms_"+p.index,globalIntervalMs())));
     }
 
@@ -358,7 +368,7 @@ public class AutoClickOverlayManager {
                     long v=Long.parseLong(input.getText().toString().trim());
                     if(v<1)return;
                     long mult=clickUnit==0?1L:(clickUnit==1?1000L:60000L);
-                    long value=Math.max(50L,Math.min(86400000L,v*mult));
+                    long value=Math.max(250L,Math.min(86400000L,v*mult));
                     prefs.edit().putLong("point_interval_ms_"+p.index,value).apply();
                 }catch(Exception ignored){}
             }).create();
@@ -386,6 +396,7 @@ public class AutoClickOverlayManager {
         runEndsAt=timerDurationMs>0?now+timerDurationMs:0L;
         sequenceIndex=0;
         sequenceDue=now;
+        nextGlobalTapAt=now;
         for(int i=0;i<points.size();i++) nextDue[i]=now+(i*35L);
         scheduler=new Runnable(){
             @Override public void run(){
@@ -398,27 +409,34 @@ public class AutoClickOverlayManager {
                 }
                 long soon=Long.MAX_VALUE;
                 if(sequenceMode){
-                    // Sequencial: executa uma bolinha por vez, na ordem numérica,
-                    // respeitando o intervalo individual de cada alvo.
-                    if(!points.isEmpty()&&t>=sequenceDue){
+                    // Sequencial: respeita o intervalo individual e limita a taxa total.
+                    if(!points.isEmpty()&&t>=sequenceDue&&t>=nextGlobalTapAt){
                         if(sequenceIndex>=points.size())sequenceIndex=0;
                         Point p=points.get(sequenceIndex);
                         TapAccessibilityService.tap(p.params.x+22,p.params.y+22);
                         sequenceIndex=(sequenceIndex+1)%points.size();
                         sequenceDue=t+intervalFor(p);
+                        nextGlobalTapAt=t+120L;
                     }
-                    soon=sequenceDue;
+                    soon=Math.min(sequenceDue,nextGlobalTapAt);
                 }else{
-                    // Personalizado: cada bolinha mantém seu próprio relógio independente.
+                    // Personalizado: um toque por vez; evita rajadas que aquecem o aparelho.
+                    boolean sent=false;
                     for(int i=0;i<points.size();i++){
                         if(i>=nextDue.length)break;
                         Point p=points.get(i);
-                        if(t>=nextDue[i]){
+                        if(!sent&&t>=nextDue[i]&&t>=nextGlobalTapAt){
                             TapAccessibilityService.tap(p.params.x+22,p.params.y+22);
-                            long step=intervalFor(p);
-                            do{nextDue[i]+=step;}while(nextDue[i]<=t);
+                            nextDue[i]=t+intervalFor(p);
+                            nextGlobalTapAt=t+120L;
+                            sent=true;
                         }
                         soon=Math.min(soon,nextDue[i]);
+                    }
+                    if(!sent){
+                        for(int i=0;i<nextDue.length;i++){
+                            if(t>=nextDue[i]){soon=Math.min(soon,nextGlobalTapAt);break;}
+                        }
                     }
                 }
                 if(running){
@@ -435,7 +453,7 @@ public class AutoClickOverlayManager {
         TapAccessibilityService.clearPendingNormalTaps();
         runEndsAt=0L;
         if(scheduler!=null)main.removeCallbacks(scheduler);
-        scheduler=null;nextDue=null;sequenceIndex=0;sequenceDue=0L;
+        scheduler=null;nextDue=null;sequenceIndex=0;sequenceDue=0L;nextGlobalTapAt=0L;
         // Restore touch input so the user can drag and configure the points again.
         setPointTouchability(true);
         updateRunState();
