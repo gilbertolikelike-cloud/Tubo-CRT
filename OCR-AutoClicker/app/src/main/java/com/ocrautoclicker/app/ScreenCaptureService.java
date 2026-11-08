@@ -4,7 +4,9 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.Service;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.hardware.display.DisplayManager;
@@ -40,7 +42,7 @@ public class ScreenCaptureService extends Service {
     private HandlerThread workerThread;
     private Handler worker;
     private TextRecognizer recognizer;
-    private String target = "";
+    private RegionOverlayManager overlayManager;
     private long intervalMs = 2000;
     private long lastScan;
     private final AtomicBoolean processing = new AtomicBoolean(false);
@@ -66,7 +68,6 @@ public class ScreenCaptureService extends Service {
             return START_NOT_STICKY;
         }
 
-        target = intent.getStringExtra("target");
         intervalMs = Math.max(1000, Math.min(60000,
             intent.getIntExtra("interval", 2) * 1000L));
 
@@ -79,12 +80,7 @@ public class ScreenCaptureService extends Service {
 
         DisplayMetrics metrics = new DisplayMetrics();
         WindowManager wm = (WindowManager) getSystemService(WINDOW_SERVICE);
-        if (Build.VERSION.SDK_INT >= 30) {
-            android.view.Display display = wm.getDefaultDisplay();
-            display.getRealMetrics(metrics);
-        } else {
-            wm.getDefaultDisplay().getRealMetrics(metrics);
-        }
+        wm.getDefaultDisplay().getRealMetrics(metrics);
         screenWidth = metrics.widthPixels;
         screenHeight = metrics.heightPixels;
         screenDensity = metrics.densityDpi;
@@ -111,6 +107,9 @@ public class ScreenCaptureService extends Service {
             imageReader.getSurface(),
             null,
             worker);
+
+        overlayManager = new RegionOverlayManager(this, screenWidth, screenHeight);
+        overlayManager.show();
 
         worker.post(scanLoop);
         return START_NOT_STICKY;
@@ -167,17 +166,38 @@ public class ScreenCaptureService extends Service {
     }
 
     private void handleText(Text result) {
-        if (target == null || target.trim().isEmpty()) return;
-        String wanted = target.trim().toLowerCase(Locale.ROOT);
-        for (Text.TextBlock block : result.getTextBlocks()) {
-            for (Text.Line line : block.getLines()) {
-                String found = line.getText().toLowerCase(Locale.ROOT);
-                if (found.contains(wanted)) {
-                    Rect box = line.getBoundingBox();
-                    if (box != null) {
-                        float x = Math.max(1, Math.min(screenWidth - 1, box.centerX()));
-                        float y = Math.max(1, Math.min(screenHeight - 1, box.centerY()));
-                        TapAccessibilityService.tap(x, y);
+        SharedPreferences prefs = getSharedPreferences("ocr_zones", Context.MODE_PRIVATE);
+
+        // One tap per scan: the first matching target in the first matching area wins.
+        for (int zone = 0; zone < 10; zone++) {
+            String wanted = prefs.getString("word_" + zone, zone == 0 ? "YES" : "");
+            boolean enabled = prefs.getBoolean("enabled_" + zone, zone == 0);
+            if (!enabled || wanted == null || wanted.trim().isEmpty()) continue;
+            wanted = wanted.trim().toLowerCase(Locale.ROOT);
+
+            Rect area = RegionOverlayManager.getZoneRect(this, zone, screenWidth, screenHeight);
+            for (Text.TextBlock block : result.getTextBlocks()) {
+                for (Text.Line line : block.getLines()) {
+                    boolean lineMatches = line.getText().toLowerCase(Locale.ROOT).contains(wanted);
+                    if (!lineMatches) continue;
+
+                    // Prefer the individual word box so the tap lands on the word, not the whole line.
+                    boolean tappedElement = false;
+                    for (Text.Element element : line.getElements()) {
+                        String elementText = element.getText().toLowerCase(Locale.ROOT);
+                        Rect elementBox = element.getBoundingBox();
+                        if (elementBox != null && elementText.contains(wanted)
+                            && area.contains(elementBox.centerX(), elementBox.centerY())) {
+                            TapAccessibilityService.tap(elementBox.centerX(), elementBox.centerY());
+                            return;
+                        }
+                    }
+
+                    // Multi-word targets may span several OCR elements; use the matching line box.
+                    Rect lineBox = line.getBoundingBox();
+                    if (!tappedElement && lineBox != null
+                        && area.contains(lineBox.centerX(), lineBox.centerY())) {
+                        TapAccessibilityService.tap(lineBox.centerX(), lineBox.centerY());
                         return;
                     }
                 }
@@ -188,7 +208,7 @@ public class ScreenCaptureService extends Service {
     private Notification buildNotification() {
         return new Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("OCR Auto Clicker ativo")
-            .setContentText("Procurando: " + target + " • Toque em PARAR no aplicativo para encerrar.")
+            .setContentText("Procurando textos nas áreas selecionadas. Abra o app e toque em PARAR para encerrar.")
             .setSmallIcon(android.R.drawable.ic_menu_search)
             .setOngoing(true)
             .build();
@@ -206,6 +226,7 @@ public class ScreenCaptureService extends Service {
     public void onDestroy() {
         stopped = true;
         if (worker != null) worker.removeCallbacksAndMessages(null);
+        if (overlayManager != null) overlayManager.destroy();
         if (virtualDisplay != null) virtualDisplay.release();
         if (imageReader != null) imageReader.close();
         if (projection != null) projection.stop();
