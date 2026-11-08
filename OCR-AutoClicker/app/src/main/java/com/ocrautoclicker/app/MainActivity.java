@@ -4,6 +4,8 @@ import android.app.Activity;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.net.Uri;
+import android.media.projection.MediaProjectionManager;
+import android.content.Context;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
@@ -14,7 +16,8 @@ import android.widget.*;
 import android.text.InputType;
 
 public class MainActivity extends Activity {
-    private EditText interval;
+    private static final int REQUEST_OCR_CAPTURE = 410;
+    private EditText interval, ocrWord, ocrInterval;
     private Spinner unit, mode;
     private TextView status;
 
@@ -124,11 +127,36 @@ public class MainActivity extends Activity {
             setStatus("Auto Clicker iniciado. O painel aparecerá sobre outros aplicativos.");
         });
 
-        Button stop = button("PARAR AUTO CLICKER");
+        addLabel(root, "OCR OPCIONAL — REGIÃO DA TELA");
+        ocrWord = new EditText(this);
+        ocrWord.setSingleLine(true);
+        ocrWord.setInputType(InputType.TYPE_CLASS_TEXT);
+        ocrWord.setTextColor(Color.WHITE);
+        ocrWord.setHintTextColor(0xFF8995A3);
+        ocrWord.setHint("Palavra para procurar, ex.: COMPRAR");
+        ocrWord.setText(prefs.getString("ocr_word", "COMPRAR"));
+        root.addView(ocrWord, matchWrap());
+
+        ocrInterval = new EditText(this);
+        ocrInterval.setSingleLine(true);
+        ocrInterval.setInputType(InputType.TYPE_CLASS_NUMBER);
+        ocrInterval.setTextColor(Color.WHITE);
+        ocrInterval.setHintTextColor(0xFF8995A3);
+        ocrInterval.setHint("Intervalo OCR em milissegundos (mínimo 800)");
+        ocrInterval.setText(String.valueOf(prefs.getLong("ocr_interval_ms", 2000L)));
+        root.addView(ocrInterval, matchWrap());
+
+        Button startOcr = button("ATIVAR OCR + QUADRADO");
+        startOcr.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF087FBF));
+        root.addView(startOcr, matchWrap());
+        startOcr.setOnClickListener(v -> startOcrCapture());
+
+        Button stop = button("PARAR AUTO CLICKER / OCR");
         root.addView(stop, matchWrap());
         stop.setOnClickListener(v -> {
             stopService(new Intent(this, AutoClickService.class));
-            setStatus("Auto Clicker parado.");
+            stopService(new Intent(this, ScreenCaptureService.class));
+            setStatus("Auto Clicker e OCR parados.");
         });
 
         status = new TextView(this);
@@ -139,6 +167,39 @@ public class MainActivity extends Activity {
         root.addView(status, matchWrap());
 
         setContentView(scroll);
+    }
+
+    private void startOcrCapture() {
+        if (!saveSettings()) return;
+        String target = ocrWord.getText().toString().trim();
+        if (target.isEmpty()) { setStatus("Digite a palavra que o OCR deve procurar."); return; }
+        long intervalMs;
+        try { intervalMs = Long.parseLong(ocrInterval.getText().toString().trim()); }
+        catch (Exception e) { setStatus("Informe o intervalo do OCR em milissegundos."); return; }
+        intervalMs = Math.max(800L, Math.min(60000L, intervalMs));
+        getSharedPreferences("automation", MODE_PRIVATE).edit()
+            .putString("ocr_word", target).putLong("ocr_interval_ms", intervalMs).apply();
+        if (!TapAccessibilityService.isReady()) { setStatus("Ative primeiro a acessibilidade."); return; }
+        if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
+            setStatus("Libere a sobreposição antes de ativar o quadrado OCR."); return;
+        }
+        MediaProjectionManager manager = (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+        startActivityForResult(manager.createScreenCaptureIntent(), REQUEST_OCR_CAPTURE);
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQUEST_OCR_CAPTURE) return;
+        if (resultCode != RESULT_OK || data == null) {
+            setStatus("Captura de tela não autorizada; OCR não foi iniciado."); return;
+        }
+        stopService(new Intent(this, AutoClickService.class));
+        Intent service = new Intent(this, ScreenCaptureService.class);
+        service.putExtra("resultCode", resultCode);
+        service.putExtra("captureData", data);
+        if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
+        else startService(service);
+        setStatus("OCR ativo. Arraste o quadrado para selecionar a região.");
     }
 
     private boolean saveSettings() {
