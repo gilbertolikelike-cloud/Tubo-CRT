@@ -152,6 +152,7 @@ public class MainActivity extends Activity {
         layout.addView(stop);
         stop.setOnClickListener(v -> {
             stopService(new Intent(this, ScreenCaptureService.class));
+            stopService(new Intent(this, AutoClickService.class));
             status.setText("Automação parada.");
         });
 
@@ -363,7 +364,8 @@ public class MainActivity extends Activity {
             return;
         }
         stopService(new Intent(this, ScreenCaptureService.class));
-        Intent service = new Intent(this, ScreenCaptureService.class);
+        stopService(new Intent(this, AutoClickService.class));
+        Intent service = new Intent(this, AutoClickService.class);
         if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
         else startService(service);
         status.setText("Auto Click ativo. OCR desligado para economizar recursos.");
@@ -387,6 +389,7 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_CAPTURE && resultCode == RESULT_OK && data != null) {
             // Stop an earlier capture service before creating the new overlays/settings.
+            stopService(new Intent(this, AutoClickService.class));
             stopService(new Intent(this, ScreenCaptureService.class));
             Intent service = new Intent(this, ScreenCaptureService.class);
             service.putExtra("resultCode", resultCode);
