@@ -80,13 +80,14 @@ public class MainActivity extends Activity {
         clickMode = new Spinner(this);
         ArrayAdapter<String> modes = new ArrayAdapter<>(this,
             android.R.layout.simple_spinner_dropdown_item,
-            new String[]{"Solo (1 bolinha)", "Personalizado (várias bolinhas)"});
+            new String[]{"Solo (1 bolinha)", "Personalizado (todas independentes)", "Sequencial (uma por vez)"});
         clickMode.setAdapter(modes);
-        clickMode.setSelection("solo".equals(prefs.getString("click_mode", "custom")) ? 0 : 1);
+        String savedMode=prefs.getString("click_mode","custom");
+        clickMode.setSelection("solo".equals(savedMode)?0:("sequence".equals(savedMode)?2:1));
         layout.addView(clickMode);
 
         TextView info = new TextView(this);
-        info.setText("O quadrado OCR continua independente nos dois modos. Solo mantém exatamente uma bolinha; Personalizado permite adicionar e remover várias pelo painel. Pressione uma bolinha para ajustar seu intervalo individual. O botão de cronômetro no painel define por quantos minutos as bolinhas vão funcionar (0 = sem limite).");
+        info.setText("O quadrado OCR continua independente. Solo usa uma bolinha; Personalizado dispara todas nos próprios intervalos; Sequencial toca uma bolinha por vez, em ordem, respeitando o intervalo individual de cada uma. No painel, +/− gerenciam alvos, toque longo numa bolinha ajusta seu intervalo e o cronômetro limita a duração (0 = sem limite).");
         info.setTextColor(Color.LTGRAY);
         info.setTextSize(14);
         info.setPadding(0, 10, 0, 12);
@@ -199,7 +200,8 @@ public class MainActivity extends Activity {
             int clickSelected = clickUnit.getSelectedItemPosition();
             long ocrMs = toMillis(ocrValue, ocrSelected);
             long clickMs = toMillis(clickValue, clickSelected);
-            String mode = clickMode.getSelectedItemPosition() == 0 ? "solo" : "custom";
+            int selectedMode=clickMode.getSelectedItemPosition();
+            String mode=selectedMode==0?"solo":(selectedMode==2?"sequence":"custom");
             SharedPreferences.Editor edit = getSharedPreferences("automation", MODE_PRIVATE).edit();
             edit.putString("ocr_word", target)
                 .putLong("ocr_interval_value", ocrValue)
@@ -247,7 +249,7 @@ public class MainActivity extends Activity {
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
             else startService(service);
             status.setText("OCR ativo. Modo " +
-                (clickMode.getSelectedItemPosition() == 0 ? "Solo" : "Personalizado") + ".");
+                (clickMode.getSelectedItemPosition()==0?"Solo":(clickMode.getSelectedItemPosition()==2?"Sequencial":"Personalizado")) + ".");
         } else status.setText("Captura de tela cancelada.");
     }
 }

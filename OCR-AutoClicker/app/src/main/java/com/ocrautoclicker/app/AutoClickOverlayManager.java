@@ -37,6 +37,9 @@ public class AutoClickOverlayManager {
     private long nextDue[];
     private int clickUnit;
     private boolean soloMode;
+    private boolean sequenceMode;
+    private int sequenceIndex;
+    private long sequenceDue;
     private long timerDurationMs;
     private long runEndsAt;
 
@@ -45,7 +48,9 @@ public class AutoClickOverlayManager {
         wm=(WindowManager)c.getSystemService(Context.WINDOW_SERVICE);
         prefs=c.getSharedPreferences("automation", Context.MODE_PRIVATE);
         clickUnit=prefs.getInt("click_interval_unit",prefs.getInt("global_unit",1));
-        soloMode="solo".equals(prefs.getString("click_mode","custom"));
+        String mode=prefs.getString("click_mode","custom");
+        soloMode="solo".equals(mode);
+        sequenceMode="sequence".equals(mode);
         timerDurationMs=Math.max(0L,Math.min(86400000L,prefs.getLong("click_timer_duration_ms",0L)));
     }
 
@@ -294,6 +299,8 @@ public class AutoClickOverlayManager {
         nextDue=new long[points.size()];
         long now=android.os.SystemClock.elapsedRealtime();
         runEndsAt=timerDurationMs>0?now+timerDurationMs:0L;
+        sequenceIndex=0;
+        sequenceDue=now;
         for(int i=0;i<points.size();i++) nextDue[i]=now+(i*35L);
         scheduler=new Runnable(){
             @Override public void run(){
@@ -305,15 +312,29 @@ public class AutoClickOverlayManager {
                     return;
                 }
                 long soon=Long.MAX_VALUE;
-                for(int i=0;i<points.size();i++){
-                    if(i>=nextDue.length)break;
-                    Point p=points.get(i);
-                    if(t>=nextDue[i]){
+                if(sequenceMode){
+                    // Sequencial: executa uma bolinha por vez, na ordem numérica,
+                    // respeitando o intervalo individual de cada alvo.
+                    if(!points.isEmpty()&&t>=sequenceDue){
+                        if(sequenceIndex>=points.size())sequenceIndex=0;
+                        Point p=points.get(sequenceIndex);
                         TapAccessibilityService.tap(p.params.x+22,p.params.y+22);
-                        long step=intervalFor(p);
-                        do{nextDue[i]+=step;}while(nextDue[i]<=t);
+                        sequenceIndex=(sequenceIndex+1)%points.size();
+                        sequenceDue=t+intervalFor(p);
                     }
-                    soon=Math.min(soon,nextDue[i]);
+                    soon=sequenceDue;
+                }else{
+                    // Personalizado: cada bolinha mantém seu próprio relógio independente.
+                    for(int i=0;i<points.size();i++){
+                        if(i>=nextDue.length)break;
+                        Point p=points.get(i);
+                        if(t>=nextDue[i]){
+                            TapAccessibilityService.tap(p.params.x+22,p.params.y+22);
+                            long step=intervalFor(p);
+                            do{nextDue[i]+=step;}while(nextDue[i]<=t);
+                        }
+                        soon=Math.min(soon,nextDue[i]);
+                    }
                 }
                 if(running){
                     long delay=Math.max(10L,Math.min(250L,soon-android.os.SystemClock.elapsedRealtime()));
@@ -328,7 +349,7 @@ public class AutoClickOverlayManager {
         running=false;
         runEndsAt=0L;
         if(scheduler!=null)main.removeCallbacks(scheduler);
-        scheduler=null;nextDue=null;
+        scheduler=null;nextDue=null;sequenceIndex=0;sequenceDue=0L;
         // Restore touch input so the user can drag and configure the points again.
         setPointTouchability(true);
     }
