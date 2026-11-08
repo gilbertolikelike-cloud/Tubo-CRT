@@ -52,7 +52,7 @@ public class TapAccessibilityService extends AccessibilityService {
         if (service == null || Build.VERSION.SDK_INT < 24) return false;
         synchronized (service) {
             ArrayDeque<PointF> queue = priority ? service.priorityTaps : service.normalTaps;
-            int limit = priority ? 12 : 180;
+            int limit = priority ? 12 : 8;
             if (queue.size() >= limit) return false;
             queue.add(new PointF(x, y));
             if (!service.gestureInProgress) service.dispatchNextTap();
