@@ -16,19 +16,18 @@ import android.text.InputType;
 
 public class MainActivity extends Activity {
     private static final int REQUEST_CAPTURE = 410;
-    private EditText interval;
+    private EditText word, interval;
+    private Spinner unit;
     private TextView status;
-    private EditText[] words = new EditText[10];
-    private CheckBox[] enabled = new CheckBox[10];
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        SharedPreferences prefs = getSharedPreferences("automation", MODE_PRIVATE);
 
         ScrollView scroll = new ScrollView(this);
         LinearLayout layout = new LinearLayout(this);
         layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(28, 28, 28, 24);
+        layout.setPadding(26, 26, 26, 24);
         layout.setBackgroundColor(Color.rgb(20, 24, 30));
         scroll.addView(layout);
 
@@ -40,57 +39,52 @@ public class MainActivity extends Activity {
         layout.addView(title);
 
         TextView version = new TextView(this);
-        version.setText("BETA 0.3 • ATÉ 10 ÁREAS");
+        version.setText("BETA 0.6 • 1 OCR + ATÉ 100 CLIQUES");
         version.setTextColor(Color.GREEN);
         version.setGravity(Gravity.CENTER);
-        version.setPadding(0, 8, 0, 20);
+        version.setPadding(0, 8, 0, 18);
         layout.addView(version);
 
-        TextView intro = new TextView(this);
-        intro.setText("Configure uma palavra para cada área. Marque as áreas que deseja usar. Os quadrados poderão ser movidos e redimensionados quando o OCR estiver iniciado.");
-        intro.setTextColor(Color.LTGRAY);
-        intro.setTextSize(14);
-        layout.addView(intro);
+        addLabel(layout, "PALAVRA QUE O OCR DEVE PROCURAR");
+        word = new EditText(this);
+        word.setSingleLine(true);
+        word.setTextColor(Color.WHITE);
+        word.setHintTextColor(Color.GRAY);
+        word.setHint("Ex.: COMPRAR");
+        word.setText(prefs.getString("ocr_word", "YES"));
+        layout.addView(word);
 
-        SharedPreferences prefs = getSharedPreferences("ocr_zones", MODE_PRIVATE);
-        for (int i = 0; i < 10; i++) {
-            LinearLayout row = new LinearLayout(this);
-            row.setOrientation(LinearLayout.HORIZONTAL);
-            row.setGravity(Gravity.CENTER_VERTICAL);
-            row.setPadding(0, 8, 0, 2);
-
-            enabled[i] = new CheckBox(this);
-            enabled[i].setText("Área " + (i + 1));
-            enabled[i].setTextColor(Color.WHITE);
-            enabled[i].setButtonTintList(android.content.res.ColorStateList.valueOf(Color.GREEN));
-            enabled[i].setChecked(prefs.getBoolean("enabled_" + i, i == 0));
-            row.addView(enabled[i], new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-
-            words[i] = new EditText(this);
-            words[i].setSingleLine(true);
-            words[i].setTextColor(Color.WHITE);
-            words[i].setHintTextColor(Color.GRAY);
-            words[i].setHint(i == 0 ? "YES" : "Palavra para procurar");
-            words[i].setText(prefs.getString("word_" + i, i == 0 ? "YES" : ""));
-            words[i].setTextSize(15);
-            row.addView(words[i], new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-            enabled[i].setOnCheckedChangeListener((button, checked) -> saveZones());
-            layout.addView(row);
-        }
-
-        addLabel(layout, "Intervalo entre leituras (segundos):");
+        addLabel(layout, "VELOCIDADE GLOBAL / INTERVALO PADRÃO");
+        LinearLayout speedRow = new LinearLayout(this);
+        speedRow.setOrientation(LinearLayout.HORIZONTAL);
         interval = new EditText(this);
-        interval.setText("2");
-        interval.setInputType(InputType.TYPE_CLASS_NUMBER);
+        interval.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         interval.setTextColor(Color.WHITE);
-        layout.addView(interval);
+        interval.setSingleLine(true);
+        interval.setText(String.valueOf(prefs.getLong("global_interval_value", 2)));
+        speedRow.addView(interval, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        unit = new Spinner(this);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
+            android.R.layout.simple_spinner_dropdown_item,
+            new String[]{"MS (milissegundos)", "Segundos", "Minutos"});
+        unit.setAdapter(adapter);
+        unit.setSelection(prefs.getInt("global_unit", 1));
+        speedRow.addView(unit, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        layout.addView(speedRow);
+
+        TextView info = new TextView(this);
+        info.setText("O intervalo global é usado como padrão. Toque e arraste as bolinhas para posicionar. Pressione uma bolinha por alguns instantes para configurar o intervalo individual dela.");
+        info.setTextColor(Color.LTGRAY);
+        info.setTextSize(14);
+        info.setPadding(0, 10, 0, 12);
+        layout.addView(info);
 
         Button save = new Button(this);
         save.setText("SALVAR CONFIGURAÇÕES");
         layout.addView(save);
-        save.setOnClickListener(v -> saveZones());
+        save.setOnClickListener(v -> saveSettings());
 
         Button accessibility = new Button(this);
         accessibility.setText("1. ATIVAR ACESSIBILIDADE");
@@ -106,38 +100,35 @@ public class MainActivity extends Activity {
                 Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                     Uri.parse("package:" + getPackageName()));
                 startActivity(i);
-            } else {
-                status.setText("Permissão de sobreposição já liberada.");
-            }
+            } else status.setText("Permissão de sobreposição liberada.");
         });
 
         Button start = new Button(this);
-        start.setText("3. INICIAR OCR E CLIQUES");
+        start.setText("3. INICIAR OCR + PAINEL DE CLIQUES");
         layout.addView(start);
         start.setOnClickListener(v -> {
-            if (saveZones()) beginCapture();
+            if (saveSettings()) beginCapture();
         });
 
         Button stop = new Button(this);
-        stop.setText("PARAR");
+        stop.setText("PARAR TUDO");
         layout.addView(stop);
         stop.setOnClickListener(v -> {
             stopService(new Intent(this, ScreenCaptureService.class));
-            status.setText("Parado pelo usuário.");
+            status.setText("Automação parada.");
         });
 
         status = new TextView(this);
         status.setText("Status: aguardando configuração");
         status.setTextColor(Color.GREEN);
-        status.setPadding(0, 18, 0, 12);
+        status.setPadding(0, 16, 0, 12);
         layout.addView(status);
 
-        TextView note = new TextView(this);
-        note.setText("Ao iniciar, confirme a captura de tela. Os contornos mostram as áreas de busca. Use a bolinha com + para mover e a bolinha diagonal para redimensionar. Os controles ficam nas bordas para não bloquear os toques dentro da área.");
-        note.setTextColor(Color.LTGRAY);
-        note.setTextSize(13);
-        layout.addView(note);
-
+        TextView footer = new TextView(this);
+        footer.setText("No jogo, posicione o quadrado OCR sobre a palavra e use + para criar bolinhas de clique. O painel flutuante permite iniciar, pausar e ajustar a quantidade. O limite desta beta é 100 pontos.");
+        footer.setTextColor(Color.LTGRAY);
+        footer.setTextSize(13);
+        layout.addView(footer);
         setContentView(scroll);
     }
 
@@ -149,37 +140,39 @@ public class MainActivity extends Activity {
         layout.addView(label);
     }
 
-    private boolean saveZones() {
-        SharedPreferences.Editor editor = getSharedPreferences("ocr_zones", MODE_PRIVATE).edit();
-        boolean any = false;
-        for (int i = 0; i < 10; i++) {
-            String word = words[i].getText().toString().trim();
-            boolean active = enabled[i].isChecked() && !word.isEmpty();
-            editor.putString("word_" + i, word);
-            editor.putBoolean("enabled_" + i, active);
-            if (active) any = true;
-        }
-        editor.apply();
-        sendBroadcast(new Intent(ScreenCaptureService.ACTION_REFRESH_ZONES)
-            .setPackage(getPackageName()));
-        if (!any) {
-            status.setText("Ative pelo menos uma área e informe uma palavra.");
+    private boolean saveSettings() {
+        String target = word.getText().toString().trim();
+        if (target.isEmpty()) {
+            status.setText("Digite a palavra que o OCR deve procurar.");
             return false;
         }
+        long value;
+        try {
+            value = Long.parseLong(interval.getText().toString().trim());
+            if (value < 1) throw new NumberFormatException();
+        } catch (Exception e) {
+            status.setText("Informe um intervalo numérico maior que zero.");
+            return false;
+        }
+        int selectedUnit = unit.getSelectedItemPosition();
+        long multiplier = selectedUnit == 0 ? 1L : (selectedUnit == 1 ? 1000L : 60000L);
+        if (value > Long.MAX_VALUE / multiplier) {
+            status.setText("Esse intervalo é muito grande.");
+            return false;
+        }
+        long intervalMs = Math.max(50L, Math.min(86400000L, value * multiplier));
+        getSharedPreferences("automation", MODE_PRIVATE).edit()
+            .putString("ocr_word", target)
+            .putLong("global_interval_value", value)
+            .putInt("global_unit", selectedUnit)
+            .putLong("global_interval_ms", intervalMs)
+            .putLong("ocr_interval_ms", intervalMs)
+            .apply();
         status.setText("Configurações salvas.");
         return true;
     }
 
     private void beginCapture() {
-        String seconds = interval.getText().toString().trim();
-        int delay;
-        try {
-            delay = Integer.parseInt(seconds);
-            if (delay < 1 || delay > 60) throw new NumberFormatException();
-        } catch (Exception e) {
-            status.setText("Use um intervalo entre 1 e 60 segundos.");
-            return;
-        }
         if (!TapAccessibilityService.isReady()) {
             status.setText("Ative primeiro a acessibilidade do OCR Auto Clicker.");
             return;
@@ -188,24 +181,20 @@ public class MainActivity extends Activity {
             status.setText("Libere a permissão de sobreposição primeiro.");
             return;
         }
-        Intent request = ((MediaProjectionManager)
-            getSystemService(Context.MEDIA_PROJECTION_SERVICE)).createScreenCaptureIntent();
-        startActivityForResult(request, REQUEST_CAPTURE);
+        MediaProjectionManager manager =
+            (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+        startActivityForResult(manager.createScreenCaptureIntent(), REQUEST_CAPTURE);
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQUEST_CAPTURE && resultCode == RESULT_OK && data != null) {
             Intent service = new Intent(this, ScreenCaptureService.class);
             service.putExtra("resultCode", resultCode);
             service.putExtra("captureData", data);
-            service.putExtra("interval", Integer.parseInt(interval.getText().toString().trim()));
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
             else startService(service);
-            status.setText("OCR iniciado. Arraste os controles dos quadrados para ajustar as áreas.");
-        } else {
-            status.setText("Captura de tela cancelada.");
-        }
+            status.setText("OCR ativo. Use o painel flutuante para controlar as bolinhas.");
+        } else status.setText("Captura de tela cancelada.");
     }
 }

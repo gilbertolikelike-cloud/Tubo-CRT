@@ -19,6 +19,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.IBinder;
+import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.view.WindowManager;
 
@@ -33,254 +34,177 @@ import java.util.Locale;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ScreenCaptureService extends Service {
-    public static final String ACTION_REFRESH_ZONES = "com.ocrautoclicker.app.REFRESH_ZONES";
-    private static final String CHANNEL_ID = "ocr_capture";
-    private static final int NOTIFICATION_ID = 72;
-
+    private static final String CHANNEL_ID="ocr_capture";
+    private static final int NOTIFICATION_ID=72;
     private MediaProjection projection;
     private VirtualDisplay virtualDisplay;
     private ImageReader imageReader;
     private HandlerThread workerThread;
     private Handler worker;
     private TextRecognizer recognizer;
-    private RegionOverlayManager overlayManager;
-    private long intervalMs = 2000;
-    private long lastScan;
-    private final AtomicBoolean processing = new AtomicBoolean(false);
-    private int screenWidth;
-    private int screenHeight;
-    private int screenDensity;
-    private boolean stopped;
-    private android.content.BroadcastReceiver zoneRefreshReceiver;
+    private RegionOverlayManager regionOverlay;
+    private AutoClickOverlayManager clickOverlay;
+    private long intervalMs=2000L;
+    private final AtomicBoolean processing=new AtomicBoolean(false);
+    private int screenWidth,screenHeight,screenDensity;
+    private volatile boolean stopped;
+    private MediaProjection.Callback projectionCallback;
 
-    @Override
-    public void onCreate() {
+    @Override public void onCreate() {
         super.onCreate();
-        zoneRefreshReceiver = new android.content.BroadcastReceiver() {
-            @Override public void onReceive(Context context, Intent intent) {
-                if (overlayManager != null) {
-                    overlayManager.destroy();
-                    overlayManager.show();
-                }
-            }
-        };
-        android.content.IntentFilter filter = new android.content.IntentFilter(ACTION_REFRESH_ZONES);
-        if (Build.VERSION.SDK_INT >= 33) {
-            registerReceiver(zoneRefreshReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(zoneRefreshReceiver, filter);
-        }
         createNotificationChannel();
-        workerThread = new HandlerThread("OCR-Capture");
+        workerThread=new HandlerThread("OCR-Worker");
         workerThread.start();
-        worker = new Handler(workerThread.getLooper());
-        recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+        worker=new Handler(workerThread.getLooper());
+        recognizer=TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
     }
 
-    @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-        if (intent == null || !intent.hasExtra("captureData")) {
-            stopSelf();
-            return START_NOT_STICKY;
-        }
+    @Override public int onStartCommand(Intent intent,int flags,int startId) {
+        if(intent==null||!intent.hasExtra("captureData")){stopSelf();return START_NOT_STICKY;}
+        SharedPreferences prefs=getSharedPreferences("automation",MODE_PRIVATE);
+        intervalMs=Math.max(50L,Math.min(86400000L,prefs.getLong("ocr_interval_ms",2000L)));
+        if(Build.VERSION.SDK_INT>=29)startForeground(NOTIFICATION_ID,buildNotification(),
+            android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
+        else startForeground(NOTIFICATION_ID,buildNotification());
 
-        intervalMs = Math.max(1000, Math.min(60000,
-            intent.getIntExtra("interval", 2) * 1000L));
-
-        if (Build.VERSION.SDK_INT >= 29) {
-            startForeground(NOTIFICATION_ID, buildNotification(),
-                android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
-        } else {
-            startForeground(NOTIFICATION_ID, buildNotification());
-        }
-
-        DisplayMetrics metrics = new DisplayMetrics();
-        WindowManager wm = (WindowManager) getSystemService(WINDOW_SERVICE);
+        DisplayMetrics metrics=new DisplayMetrics();
+        WindowManager wm=(WindowManager)getSystemService(WINDOW_SERVICE);
         wm.getDefaultDisplay().getRealMetrics(metrics);
-        screenWidth = metrics.widthPixels;
-        screenHeight = metrics.heightPixels;
-        screenDensity = metrics.densityDpi;
+        screenWidth=metrics.widthPixels;screenHeight=metrics.heightPixels;screenDensity=metrics.densityDpi;
 
-        MediaProjectionManager manager =
-            (MediaProjectionManager) getSystemService(MEDIA_PROJECTION_SERVICE);
-        projection = manager.getMediaProjection(
-            intent.getIntExtra("resultCode", 0),
-            (Intent) intent.getParcelableExtra("captureData"));
+        MediaProjectionManager manager=(MediaProjectionManager)getSystemService(MEDIA_PROJECTION_SERVICE);
+        projection=manager.getMediaProjection(intent.getIntExtra("resultCode",0),
+            (Intent)intent.getParcelableExtra("captureData"));
+        if(projection==null){stopSelf();return START_NOT_STICKY;}
 
-        if (projection == null) {
-            stopSelf();
-            return START_NOT_STICKY;
-        }
+        imageReader=ImageReader.newInstance(screenWidth,screenHeight,android.graphics.PixelFormat.RGBA_8888,2);
+        virtualDisplay=projection.createVirtualDisplay("OCR-AutoClicker",screenWidth,screenHeight,
+            screenDensity,DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,imageReader.getSurface(),null,worker);
 
-        imageReader = ImageReader.newInstance(
-            screenWidth, screenHeight, android.graphics.PixelFormat.RGBA_8888, 2);
-        virtualDisplay = projection.createVirtualDisplay(
-            "OCR-AutoClicker",
-            screenWidth,
-            screenHeight,
-            screenDensity,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            imageReader.getSurface(),
-            null,
-            worker);
+        projectionCallback=new MediaProjection.Callback(){@Override public void onStop(){stopSelf();}};
+        projection.registerCallback(projectionCallback,worker);
 
-        overlayManager = new RegionOverlayManager(this, screenWidth, screenHeight);
-        overlayManager.show();
-
+        regionOverlay=new RegionOverlayManager(this,screenWidth,screenHeight);
+        regionOverlay.show();
+        clickOverlay=new AutoClickOverlayManager(this,screenWidth,screenHeight);
+        clickOverlay.show();
         worker.post(scanLoop);
         return START_NOT_STICKY;
     }
 
-    private final Runnable scanLoop = new Runnable() {
-        @Override
-        public void run() {
-            if (stopped) return;
-            long now = System.currentTimeMillis();
-            if (now - lastScan >= intervalMs && processing.compareAndSet(false, true)) {
-                lastScan = now;
-                captureAndRead();
-            }
-            if (!stopped) worker.postDelayed(this, 200);
-        }
+    // One scan is scheduled after the previous OCR task completes: no 200 ms polling loop.
+    private final Runnable scanLoop=new Runnable(){
+        @Override public void run(){if(!stopped)captureAndRead();}
     };
 
-    private void captureAndRead() {
-        Image image = null;
-        try {
-            image = imageReader.acquireLatestImage();
-            if (image == null) {
-                processing.set(false);
-                return;
-            }
-            Image.Plane plane = image.getPlanes()[0];
-            ByteBuffer buffer = plane.getBuffer();
-            int pixelStride = plane.getPixelStride();
-            int rowStride = plane.getRowStride();
-            int rowPadding = rowStride - pixelStride * screenWidth;
-            Bitmap padded = Bitmap.createBitmap(
-                screenWidth + rowPadding / pixelStride,
-                screenHeight,
-                Bitmap.Config.ARGB_8888);
+    private void scheduleNextScan(){
+        if(!stopped&&worker!=null)worker.postDelayed(scanLoop,intervalMs);
+    }
+
+    private void captureAndRead(){
+        if(stopped||!processing.compareAndSet(false,true))return;
+        Image image=null;
+        Bitmap bitmap=null;
+        try{
+            image=imageReader.acquireLatestImage();
+            if(image==null){processing.set(false);scheduleNextScan();return;}
+            Image.Plane plane=image.getPlanes()[0];
+            ByteBuffer buffer=plane.getBuffer();
+            int pixelStride=plane.getPixelStride(),rowStride=plane.getRowStride();
+            int rowPadding=rowStride-pixelStride*screenWidth;
+            Bitmap padded=Bitmap.createBitmap(screenWidth+rowPadding/pixelStride,
+                screenHeight,Bitmap.Config.ARGB_8888);
             padded.copyPixelsFromBuffer(buffer);
-            Bitmap bitmap = Bitmap.createBitmap(padded, 0, 0, screenWidth, screenHeight);
+            bitmap=Bitmap.createBitmap(padded,0,0,screenWidth,screenHeight);
             padded.recycle();
-            image.close();
-            image = null;
-
-            InputImage input = InputImage.fromBitmap(bitmap, 0);
-            recognizer.process(input)
-                .addOnSuccessListener(result -> handleText(result))
-                .addOnFailureListener(error -> { })
-                .addOnCompleteListener(task -> {
-                    bitmap.recycle();
+            image.close();image=null;
+            Bitmap captured=bitmap;
+            recognizer.process(InputImage.fromBitmap(captured,0))
+                .addOnSuccessListener(this::handleText)
+                .addOnFailureListener(error->{})
+                .addOnCompleteListener(task->{
+                    try{if(!captured.isRecycled())captured.recycle();}catch(Exception ignored){}
                     processing.set(false);
+                    scheduleNextScan();
                 });
-        } catch (Exception e) {
-            if (image != null) image.close();
+        }catch(Exception e){
+            if(image!=null)image.close();
+            if(bitmap!=null&&!bitmap.isRecycled())bitmap.recycle();
             processing.set(false);
+            scheduleNextScan();
         }
     }
 
-    private void handleText(Text result) {
-        SharedPreferences prefs = getSharedPreferences("ocr_zones", Context.MODE_PRIVATE);
-
-        // Each enabled area gets its own first match during this OCR scan.
-        for (int zone = 0; zone < 10; zone++) {
-            String wanted = prefs.getString("word_" + zone, zone == 0 ? "YES" : "");
-            boolean enabled = prefs.getBoolean("enabled_" + zone, zone == 0);
-            if (!enabled || wanted == null || wanted.trim().isEmpty()) continue;
-            wanted = wanted.trim().toLowerCase(Locale.ROOT);
-
-            Rect area = RegionOverlayManager.getZoneRect(this, zone, screenWidth, screenHeight);
-            boolean tappedInZone = false;
-
-            for (Text.TextBlock block : result.getTextBlocks()) {
-                for (Text.Line line : block.getLines()) {
-                    String lineText = line.getText().toLowerCase(Locale.ROOT);
-                    if (!containsWholeWord(lineText, wanted)) continue;
-
-                    for (Text.Element element : line.getElements()) {
-                        String elementText = element.getText().toLowerCase(Locale.ROOT);
-                        Rect elementBox = element.getBoundingBox();
-                        if (elementBox != null && containsWholeWord(elementText, wanted)
-                            && area.contains(elementBox.centerX(), elementBox.centerY())) {
-                            tappedInZone = TapAccessibilityService.tap(
-                                elementBox.centerX(), elementBox.centerY());
-                            if (tappedInZone) break;
-                        }
+    private void handleText(Text result){
+        SharedPreferences prefs=getSharedPreferences("automation",Context.MODE_PRIVATE);
+        String wanted=prefs.getString("ocr_word","YES");
+        if(wanted==null||wanted.trim().isEmpty())return;
+        wanted=wanted.trim().toLowerCase(Locale.ROOT);
+        Rect area=RegionOverlayManager.getZoneRect(this,0,screenWidth,screenHeight);
+        for(Text.TextBlock block:result.getTextBlocks()){
+            for(Text.Line line:block.getLines()){
+                String lineText=line.getText().toLowerCase(Locale.ROOT);
+                if(!containsWholeWord(lineText,wanted))continue;
+                for(Text.Element element:line.getElements()){
+                    String value=element.getText().toLowerCase(Locale.ROOT);
+                    Rect box=element.getBoundingBox();
+                    if(box!=null&&containsWholeWord(value,wanted)
+                        &&area.contains(box.centerX(),box.centerY())){
+                        TapAccessibilityService.tapOcr(box.centerX(),box.centerY());
+                        return;
                     }
-
-                    if (!tappedInZone && wanted.contains(" ")) {
-                        Rect lineBox = line.getBoundingBox();
-                        if (lineBox != null && area.contains(lineBox.centerX(), lineBox.centerY())) {
-                            tappedInZone = TapAccessibilityService.tap(
-                                lineBox.centerX(), lineBox.centerY());
-                        }
-                    }
-                    if (tappedInZone) break;
                 }
-                if (tappedInZone) break;
+                Rect lineBox=line.getBoundingBox();
+                if(lineBox!=null&&area.contains(lineBox.centerX(),lineBox.centerY())){
+                    TapAccessibilityService.tapOcr(lineBox.centerX(),lineBox.centerY());
+                    return;
+                }
             }
-            // Continue through all active zones; do not return after the first match.
         }
     }
 
-    // Match a complete word/phrase, not just a substring (YES must not match Yeshua).
-    private boolean containsWholeWord(String text, String wanted) {
-        if (text == null || wanted == null || wanted.isEmpty()) return false;
-        int from = 0;
-        while (true) {
-            int index = text.indexOf(wanted, from);
-            if (index < 0) return false;
-            int end = index + wanted.length();
-            boolean leftBoundary = index == 0 || !isWordCharacter(text.charAt(index - 1));
-            boolean rightBoundary = end >= text.length() || !isWordCharacter(text.charAt(end));
-            if (leftBoundary && rightBoundary) return true;
-            from = index + 1;
+    private boolean containsWholeWord(String text,String wanted){
+        int from=0;
+        while(true){
+            int at=text.indexOf(wanted,from);
+            if(at<0)return false;
+            int end=at+wanted.length();
+            boolean left=at==0||!wordChar(text.charAt(at-1));
+            boolean right=end>=text.length()||!wordChar(text.charAt(end));
+            if(left&&right)return true;
+            from=at+1;
         }
     }
+    private boolean wordChar(char c){return Character.isLetterOrDigit(c)||c=='_';}
 
-    private boolean isWordCharacter(char ch) {
-        return Character.isLetterOrDigit(ch) || ch == '_';
-    }
-
-    private Notification buildNotification() {
-        return new Notification.Builder(this, CHANNEL_ID)
+    private Notification buildNotification(){
+        return new Notification.Builder(this,CHANNEL_ID)
             .setContentTitle("OCR Auto Clicker ativo")
-            .setContentText("Procurando textos nas áreas selecionadas. Abra o app e toque em PARAR para encerrar.")
-            .setSmallIcon(android.R.drawable.ic_menu_search)
-            .setOngoing(true)
-            .build();
+            .setContentText("OCR e painel flutuante ativos. Use PARAR para encerrar.")
+            .setSmallIcon(android.R.drawable.ic_menu_search).setOngoing(true).build();
     }
-
-    private void createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= 26) {
-            NotificationChannel channel = new NotificationChannel(
-                CHANNEL_ID, "Captura OCR", NotificationManager.IMPORTANCE_LOW);
+    private void createNotificationChannel(){
+        if(Build.VERSION.SDK_INT>=26){
+            NotificationChannel channel=new NotificationChannel(CHANNEL_ID,"Captura OCR",NotificationManager.IMPORTANCE_LOW);
             getSystemService(NotificationManager.class).createNotificationChannel(channel);
         }
     }
 
-    @Override
-    public void onDestroy() {
-        stopped = true;
-        if (zoneRefreshReceiver != null) {
-            try { unregisterReceiver(zoneRefreshReceiver); } catch (Exception ignored) { }
-            zoneRefreshReceiver = null;
+    @Override public void onDestroy(){
+        stopped=true;
+        if(worker!=null)worker.removeCallbacksAndMessages(null);
+        if(clickOverlay!=null)clickOverlay.destroy();
+        if(regionOverlay!=null)regionOverlay.destroy();
+        if(virtualDisplay!=null)virtualDisplay.release();
+        if(imageReader!=null)imageReader.close();
+        if(projection!=null){
+            if(projectionCallback!=null)try{projection.unregisterCallback(projectionCallback);}catch(Exception ignored){}
+            projection.stop();
         }
-        if (worker != null) worker.removeCallbacksAndMessages(null);
-        if (overlayManager != null) overlayManager.destroy();
-        if (virtualDisplay != null) virtualDisplay.release();
-        if (imageReader != null) imageReader.close();
-        if (projection != null) projection.stop();
-        if (recognizer != null) recognizer.close();
-        if (workerThread != null) workerThread.quitSafely();
+        if(recognizer!=null)recognizer.close();
+        if(workerThread!=null)workerThread.quitSafely();
         stopForeground(true);
         super.onDestroy();
     }
-
-    @Override
-    public IBinder onBind(Intent intent) {
-        return null;
-    }
+    @Override public IBinder onBind(Intent intent){return null;}
 }
