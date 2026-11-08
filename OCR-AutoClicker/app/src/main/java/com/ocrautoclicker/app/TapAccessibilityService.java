@@ -38,6 +38,13 @@ public class TapAccessibilityService extends AccessibilityService {
     public static boolean isReady() { return instance != null; }
 
     public static boolean tap(float x, float y) { return enqueue(x, y, false); }
+    /** Clears queued clicker taps immediately on pause without discarding OCR taps. */
+    public static void clearPendingNormalTaps() {
+        TapAccessibilityService service = instance;
+        if (service == null) return;
+        synchronized (service) { service.normalTaps.clear(); }
+    }
+
     public static boolean tapOcr(float x, float y) { return enqueue(x, y, true); }
 
     private static boolean enqueue(float x, float y, boolean priority) {
@@ -45,7 +52,7 @@ public class TapAccessibilityService extends AccessibilityService {
         if (service == null || Build.VERSION.SDK_INT < 24) return false;
         synchronized (service) {
             ArrayDeque<PointF> queue = priority ? service.priorityTaps : service.normalTaps;
-            int limit = priority ? 12 : 180;
+            int limit = priority ? 12 : 8;
             if (queue.size() >= limit) return false;
             queue.add(new PointF(x, y));
             if (!service.gestureInProgress) service.dispatchNextTap();
