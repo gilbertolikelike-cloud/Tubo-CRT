@@ -62,7 +62,8 @@ public class ScreenCaptureService extends Service {
     @Override public int onStartCommand(Intent intent,int flags,int startId) {
         if(intent==null||!intent.hasExtra("captureData")){stopSelf();return START_NOT_STICKY;}
         SharedPreferences prefs=getSharedPreferences("automation",MODE_PRIVATE);
-        intervalMs=Math.max(50L,Math.min(86400000L,prefs.getLong("ocr_interval_ms",2000L)));
+        // Full-screen OCR is expensive: enforce a half-second floor to reduce heat and battery drain.
+        intervalMs=Math.max(500L,Math.min(86400000L,prefs.getLong("ocr_interval_ms",2000L)));
         if(Build.VERSION.SDK_INT>=29)startForeground(NOTIFICATION_ID,buildNotification(),
             android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION);
         else startForeground(NOTIFICATION_ID,buildNotification());

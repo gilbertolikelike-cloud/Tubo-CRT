@@ -181,10 +181,10 @@ public class MainActivity extends Activity {
         return value;
     }
 
-    private long toMillis(long value, int selectedUnit) {
+    private long toMillis(long value, int selectedUnit, long minimumMs) {
         long multiplier = selectedUnit == 0 ? 1L : (selectedUnit == 1 ? 1000L : 60000L);
         if (value > Long.MAX_VALUE / multiplier) throw new IllegalArgumentException("Intervalo muito grande.");
-        return Math.max(50L, Math.min(86400000L, value * multiplier));
+        return Math.max(minimumMs, Math.min(86400000L, value * multiplier));
     }
 
     private boolean saveSettings() {
@@ -198,8 +198,8 @@ public class MainActivity extends Activity {
             long clickValue = readInterval(clickInterval, "Informe a velocidade das bolinhas.");
             int ocrSelected = ocrUnit.getSelectedItemPosition();
             int clickSelected = clickUnit.getSelectedItemPosition();
-            long ocrMs = toMillis(ocrValue, ocrSelected);
-            long clickMs = toMillis(clickValue, clickSelected);
+            long ocrMs = toMillis(ocrValue, ocrSelected, 500L);
+            long clickMs = toMillis(clickValue, clickSelected, 250L);
             int selectedMode=clickMode.getSelectedItemPosition();
             String mode=selectedMode==0?"solo":(selectedMode==2?"sequence":"custom");
             SharedPreferences.Editor edit = getSharedPreferences("automation", MODE_PRIVATE).edit();
