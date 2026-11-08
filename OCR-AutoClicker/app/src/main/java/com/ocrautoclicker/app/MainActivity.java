@@ -1,374 +1,198 @@
 package com.ocrautoclicker.app;
 
 import android.app.Activity;
-import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.media.projection.MediaProjectionManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
 import android.graphics.Color;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.*;
 import android.text.InputType;
-import android.content.ClipData;
-import android.content.ClipboardManager;
-import org.json.JSONArray;
-import org.json.JSONObject;
 
 public class MainActivity extends Activity {
-    private static final int REQUEST_CAPTURE = 410;
-    private EditText word, ocrInterval, clickInterval;
-    private Spinner ocrUnit, clickUnit, clickMode;
+    private EditText interval;
+    private Spinner unit, mode;
     private TextView status;
 
-    @Override protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
+    @Override protected void onCreate(Bundle state) {
+        super.onCreate(state);
         SharedPreferences prefs = getSharedPreferences("automation", MODE_PRIVATE);
+        int pad = dp(22);
 
         ScrollView scroll = new ScrollView(this);
-        LinearLayout layout = new LinearLayout(this);
-        layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(26, 26, 26, 24);
-        layout.setBackgroundColor(Color.rgb(20, 24, 30));
-        scroll.addView(layout);
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setPadding(pad, pad, pad, pad);
+        root.setBackgroundColor(Color.rgb(17, 22, 29));
+        scroll.addView(root);
 
         TextView title = new TextView(this);
-        title.setText("OCR AUTO CLICKER");
-        title.setTextSize(25);
+        title.setText("AUTO CLICKER");
         title.setTextColor(Color.WHITE);
+        title.setTextSize(26);
+        title.setTypeface(null, 1);
         title.setGravity(Gravity.CENTER);
-        layout.addView(title);
+        root.addView(title, matchWrap());
 
-        TextView version = new TextView(this);
-        version.setText("BETA 0.9.2 • 1 OCR + ATÉ 100 CLIQUES");
-        version.setTextColor(Color.GREEN);
-        version.setGravity(Gravity.CENTER);
-        version.setPadding(0, 8, 0, 18);
-        layout.addView(version);
+        TextView subtitle = new TextView(this);
+        subtitle.setText("Toques automáticos • painel flutuante");
+        subtitle.setTextColor(0xFF9EABB9);
+        subtitle.setTextSize(14);
+        subtitle.setGravity(Gravity.CENTER);
+        subtitle.setPadding(0, dp(5), 0, dp(24));
+        root.addView(subtitle, matchWrap());
 
-        addLabel(layout, "PALAVRA QUE O OCR DEVE PROCURAR");
-        word = new EditText(this);
-        word.setSingleLine(true);
-        word.setTextColor(Color.WHITE);
-        word.setHintTextColor(Color.GRAY);
-        word.setHint("Ex.: COMPRAR");
-        word.setText(prefs.getString("ocr_word", "YES"));
-        layout.addView(word);
+        addLabel(root, "INTERVALO ENTRE TOQUES");
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        interval = new EditText(this);
+        interval.setSingleLine(true);
+        interval.setInputType(InputType.TYPE_CLASS_NUMBER);
+        interval.setTextColor(Color.WHITE);
+        interval.setHintTextColor(0xFF8995A3);
+        interval.setHint("Ex.: 500");
+        long savedMs = Math.max(250L, prefs.getLong("click_default_interval_ms", 1000L));
+        int savedUnit = Math.max(0, Math.min(2, prefs.getInt("click_interval_unit", 0)));
+        long multiplier = savedUnit == 0 ? 1L : savedUnit == 1 ? 1000L : 60000L;
+        interval.setText(String.valueOf(Math.max(1L, savedMs / multiplier)));
+        row.addView(interval, new LinearLayout.LayoutParams(0, dp(52), 1));
 
-        addLabel(layout, "VELOCIDADE DO OCR (SOMENTE LEITURA DA PALAVRA)");
-        LinearLayout ocrRow = new LinearLayout(this);
-        ocrRow.setOrientation(LinearLayout.HORIZONTAL);
-        ocrInterval = numberField(prefs.getLong("ocr_interval_value",
-            prefs.getLong("global_interval_value", 2)));
-        ocrRow.addView(ocrInterval, weighted());
-        ocrUnit = unitSpinner(prefs.getInt("ocr_interval_unit",
-            prefs.getInt("global_unit", 1)));
-        ocrRow.addView(ocrUnit, weighted());
-        layout.addView(ocrRow);
+        unit = new Spinner(this);
+        ArrayAdapter<String> units = new ArrayAdapter<>(this,
+            android.R.layout.simple_spinner_dropdown_item,
+            new String[]{"Milissegundos", "Segundos", "Minutos"});
+        unit.setAdapter(units);
+        unit.setSelection(savedUnit);
+        row.addView(unit, new LinearLayout.LayoutParams(0, dp(52), 1));
+        root.addView(row);
 
-        addLabel(layout, "VELOCIDADE PADRÃO DAS BOLINHAS (INDEPENDENTE DO OCR)");
-        LinearLayout clickRow = new LinearLayout(this);
-        clickRow.setOrientation(LinearLayout.HORIZONTAL);
-        clickInterval = numberField(prefs.getLong("click_interval_value",
-            prefs.getLong("global_interval_value", 2)));
-        clickRow.addView(clickInterval, weighted());
-        clickUnit = unitSpinner(prefs.getInt("click_interval_unit",
-            prefs.getInt("global_unit", 1)));
-        clickRow.addView(clickUnit, weighted());
-        layout.addView(clickRow);
-
-        addLabel(layout, "MODO DAS BOLINHAS");
-        clickMode = new Spinner(this);
+        addLabel(root, "MODO DE CLIQUE");
+        mode = new Spinner(this);
         ArrayAdapter<String> modes = new ArrayAdapter<>(this,
             android.R.layout.simple_spinner_dropdown_item,
-            new String[]{"Solo (1 bolinha)", "Personalizado (todas independentes)", "Sequencial (uma por vez)"});
-        clickMode.setAdapter(modes);
-        String savedMode=prefs.getString("click_mode","custom");
-        clickMode.setSelection("solo".equals(savedMode)?0:("sequence".equals(savedMode)?2:1));
-        layout.addView(clickMode);
+            new String[]{"Vários alvos (intervalo individual)", "Sequencial (um alvo por vez)", "Solo (um único alvo)"});
+        mode.setAdapter(modes);
+        String savedMode = prefs.getString("click_mode", "custom");
+        mode.setSelection("solo".equals(savedMode) ? 2 : "sequence".equals(savedMode) ? 1 : 0);
+        root.addView(mode, matchWrap());
 
-        TextView info = new TextView(this);
-        info.setText("O quadrado OCR continua independente. Solo usa uma bolinha; Personalizado dispara todas nos próprios intervalos; Sequencial toca uma bolinha por vez, em ordem, respeitando o intervalo individual de cada uma. No painel, +/− gerenciam alvos, toque longo numa bolinha ajusta seu intervalo e o cronômetro limita a duração (0 = sem limite).");
-        info.setTextColor(Color.LTGRAY);
-        info.setTextSize(14);
-        info.setPadding(0, 10, 0, 12);
-        layout.addView(info);
+        TextView help = new TextView(this);
+        help.setText("Depois de iniciar, use + para adicionar bolinhas e arraste cada uma até o local desejado. Toque longo em uma bolinha para mudar seu intervalo. O painel flutuante controla iniciar, pausar e parar.");
+        help.setTextColor(0xFFB6C0CB);
+        help.setTextSize(14);
+        help.setPadding(0, dp(14), 0, dp(18));
+        root.addView(help);
 
-        Button save = new Button(this);
-        save.setText("SALVAR CONFIGURAÇÕES");
-        layout.addView(save);
+        Button save = button("SALVAR CONFIGURAÇÕES");
+        root.addView(save, matchWrap());
         save.setOnClickListener(v -> saveSettings());
 
-        LinearLayout transferRow = new LinearLayout(this);
-        transferRow.setOrientation(LinearLayout.HORIZONTAL);
-        Button export = new Button(this);
-        export.setText("EXPORTAR");
-        Button importConfig = new Button(this);
-        importConfig.setText("IMPORTAR");
-        transferRow.addView(export, weighted());
-        transferRow.addView(importConfig, weighted());
-        layout.addView(transferRow);
-        export.setOnClickListener(v -> exportConfig());
-        importConfig.setOnClickListener(v -> importConfig());
+        Button accessibility = button("1. ATIVAR ACESSIBILIDADE");
+        root.addView(accessibility, matchWrap());
+        accessibility.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
 
-        Button accessibility = new Button(this);
-        accessibility.setText("1. ATIVAR ACESSIBILIDADE");
-        layout.addView(accessibility);
-        accessibility.setOnClickListener(v ->
-            startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)));
-
-        Button overlay = new Button(this);
-        overlay.setText("2. PERMITIR SOBREPOR OUTROS APPS");
-        layout.addView(overlay);
+        Button overlay = button("2. PERMITIR SOBREPOSIÇÃO");
+        root.addView(overlay, matchWrap());
         overlay.setOnClickListener(v -> {
             if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
                 Intent i = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
                     Uri.parse("package:" + getPackageName()));
                 startActivity(i);
-            } else status.setText("Permissão de sobreposição liberada.");
+            } else setStatus("Permissão de sobreposição liberada.");
         });
 
-        Button start = new Button(this);
-        start.setText("3. INICIAR OCR + PAINEL DE CLIQUES");
-        layout.addView(start);
+        Button start = button("3. INICIAR AUTO CLICKER");
+        start.setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF176B45));
+        root.addView(start, matchWrap());
         start.setOnClickListener(v -> {
-            if (saveSettings()) beginCapture();
+            if (!saveSettings()) return;
+            if (!TapAccessibilityService.isReady()) {
+                setStatus("Ative primeiro a acessibilidade do Auto Clicker.");
+                return;
+            }
+            if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
+                setStatus("Libere a permissão de sobreposição primeiro.");
+                return;
+            }
+            Intent service = new Intent(this, AutoClickService.class);
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
+            else startService(service);
+            setStatus("Auto Clicker iniciado. O painel aparecerá sobre outros aplicativos.");
         });
 
-        Button stop = new Button(this);
-        stop.setText("PARAR TUDO");
-        layout.addView(stop);
+        Button stop = button("PARAR AUTO CLICKER");
+        root.addView(stop, matchWrap());
         stop.setOnClickListener(v -> {
-            stopService(new Intent(this, ScreenCaptureService.class));
-            status.setText("Automação parada.");
+            stopService(new Intent(this, AutoClickService.class));
+            setStatus("Auto Clicker parado.");
         });
 
         status = new TextView(this);
-        status.setText("Status: aguardando configuração");
-        status.setTextColor(Color.GREEN);
-        status.setPadding(0, 16, 0, 12);
-        layout.addView(status);
+        status.setText("Status: aguardando");
+        status.setTextColor(0xFF65E6A5);
+        status.setTextSize(14);
+        status.setPadding(0, dp(18), 0, 0);
+        root.addView(status, matchWrap());
 
-        TextView footer = new TextView(this);
-        footer.setText("No jogo, posicione o quadrado OCR sobre a palavra. O painel flutuante controla as bolinhas. Teste primeiro com poucas bolinhas para conferir a resposta do jogo.");
-        footer.setTextColor(Color.LTGRAY);
-        footer.setTextSize(13);
-        layout.addView(footer);
         setContentView(scroll);
     }
 
-    private EditText numberField(long value) {
-        EditText field = new EditText(this);
-        field.setInputType(InputType.TYPE_CLASS_NUMBER);
-        field.setTextColor(Color.WHITE);
-        field.setSingleLine(true);
-        field.setText(String.valueOf(Math.max(1L, value)));
-        return field;
-    }
-
-    private LinearLayout.LayoutParams weighted() {
-        return new LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
-    }
-
-    private Spinner unitSpinner(int selected) {
-        Spinner spinner = new Spinner(this);
-        ArrayAdapter<String> adapter = new ArrayAdapter<>(this,
-            android.R.layout.simple_spinner_dropdown_item,
-            new String[]{"MS (milissegundos)", "Segundos", "Minutos"});
-        spinner.setAdapter(adapter);
-        spinner.setSelection(Math.max(0, Math.min(2, selected)));
-        return spinner;
-    }
-
-    private void addLabel(LinearLayout layout, String value) {
-        TextView label = new TextView(this);
-        label.setText(value);
-        label.setTextColor(Color.WHITE);
-        label.setPadding(0, 14, 0, 2);
-        layout.addView(label);
-    }
-
-    private long readInterval(EditText field, String label) {
-        long value = Long.parseLong(field.getText().toString().trim());
-        if (value < 1) throw new IllegalArgumentException(label);
-        return value;
-    }
-
-    private long toMillis(long value, int selectedUnit, long minimumMs) {
-        long multiplier = selectedUnit == 0 ? 1L : (selectedUnit == 1 ? 1000L : 60000L);
-        if (value > Long.MAX_VALUE / multiplier) throw new IllegalArgumentException("Intervalo muito grande.");
-        return Math.max(minimumMs, Math.min(86400000L, value * multiplier));
-    }
-
     private boolean saveSettings() {
-        String target = word.getText().toString().trim();
-        if (target.isEmpty()) {
-            status.setText("Digite a palavra que o OCR deve procurar.");
-            return false;
-        }
         try {
-            long ocrValue = readInterval(ocrInterval, "Informe a velocidade do OCR.");
-            long clickValue = readInterval(clickInterval, "Informe a velocidade das bolinhas.");
-            int ocrSelected = ocrUnit.getSelectedItemPosition();
-            int clickSelected = clickUnit.getSelectedItemPosition();
-            long ocrMs = toMillis(ocrValue, ocrSelected, 500L);
-            long clickMs = toMillis(clickValue, clickSelected, 250L);
-            int selectedMode=clickMode.getSelectedItemPosition();
-            String mode=selectedMode==0?"solo":(selectedMode==2?"sequence":"custom");
-            SharedPreferences.Editor edit = getSharedPreferences("automation", MODE_PRIVATE).edit();
-            edit.putString("ocr_word", target)
-                .putLong("ocr_interval_value", ocrValue)
-                .putInt("ocr_interval_unit", ocrSelected)
-                .putLong("ocr_interval_ms", ocrMs)
-                .putLong("click_interval_value", clickValue)
-                .putInt("click_interval_unit", clickSelected)
-                .putLong("click_default_interval_ms", clickMs)
-                .putString("click_mode", mode);
-            // Keep legacy keys readable by older builds; new code uses separate settings.
-            edit.putLong("global_interval_value", clickValue)
-                .putInt("global_unit", clickSelected)
-                .putLong("global_interval_ms", clickMs);
-            edit.apply();
-            status.setText("Configurações salvas. OCR e bolinhas têm velocidades separadas.");
+            long value = Long.parseLong(interval.getText().toString().trim());
+            if (value < 1) throw new IllegalArgumentException("O intervalo precisa ser maior que zero.");
+            int selectedUnit = unit.getSelectedItemPosition();
+            long multiplier = selectedUnit == 0 ? 1L : selectedUnit == 1 ? 1000L : 60000L;
+            if (value > Long.MAX_VALUE / multiplier) throw new IllegalArgumentException("Intervalo muito grande.");
+            long millis = Math.max(250L, Math.min(86400000L, value * multiplier));
+            int selectedMode = mode.getSelectedItemPosition();
+            String modeValue = selectedMode == 2 ? "solo" : selectedMode == 1 ? "sequence" : "custom";
+            getSharedPreferences("automation", MODE_PRIVATE).edit()
+                .putLong("click_default_interval_ms", millis)
+                .putLong("global_interval_ms", millis)
+                .putLong("click_interval_value", value)
+                .putInt("click_interval_unit", selectedUnit)
+                .putInt("global_unit", selectedUnit)
+                .putString("click_mode", modeValue)
+                .apply();
+            setStatus("Configurações salvas.");
             return true;
         } catch (Exception e) {
-            status.setText(e.getMessage() == null ? "Confira os intervalos informados." : e.getMessage());
+            setStatus(e.getMessage() == null ? "Confira o intervalo informado." : e.getMessage());
             return false;
         }
     }
 
-    private void exportConfig() {
-        try {
-            SharedPreferences p = getSharedPreferences("automation", MODE_PRIVATE);
-            JSONObject root = new JSONObject();
-            root.put("format", "tubo-ocr-config");
-            root.put("version", 1);
-            root.put("ocr_word", p.getString("ocr_word", "YES"));
-            root.put("ocr_interval_ms", p.getLong("ocr_interval_ms", 2000L));
-            root.put("ocr_interval_unit", p.getInt("ocr_interval_unit", 1));
-            root.put("click_default_interval_ms", p.getLong("click_default_interval_ms", 2000L));
-            root.put("click_interval_unit", p.getInt("click_interval_unit", 1));
-            root.put("click_total", p.getLong("click_total", 0L));
-            root.put("click_history", p.getString("click_history", ""));
-            root.put("click_mode", p.getString("click_mode", "custom"));
-            root.put("click_timer_duration_ms", p.getLong("click_timer_duration_ms", 0L));
-            root.put("click_limit", p.getLong("click_limit", 0L));
-            int count = Math.max(1, Math.min(100, p.getInt("point_count", 3)));
-            root.put("point_count", count);
-            JSONArray points = new JSONArray();
-            for (int i = 0; i < count; i++) {
-                JSONObject point = new JSONObject();
-                point.put("x", p.getInt("point_x_" + i, -1));
-                point.put("y", p.getInt("point_y_" + i, -1));
-                point.put("interval_ms", p.getLong("point_interval_ms_" + i, 0L));
-                points.put(point);
-            }
-            root.put("points", points);
-            String json = root.toString(2);
-            ClipboardManager clipboard = (ClipboardManager)getSystemService(CLIPBOARD_SERVICE);
-            clipboard.setPrimaryClip(ClipData.newPlainText("Tubo OCR Auto Clicker", json));
-            status.setText("Configuração exportada para a área de transferência.");
-            Toast.makeText(this, "JSON copiado. Guarde em um lugar seguro.", Toast.LENGTH_LONG).show();
-        } catch (Exception e) {
-            status.setText("Não foi possível exportar a configuração.");
-        }
+    private void addLabel(LinearLayout root, String text) {
+        TextView label = new TextView(this);
+        label.setText(text);
+        label.setTextColor(0xFFE5EBF2);
+        label.setTextSize(13);
+        label.setTypeface(null, 1);
+        label.setPadding(0, dp(18), 0, dp(5));
+        root.addView(label, matchWrap());
     }
 
-    private void importConfig() {
-        EditText input = new EditText(this);
-        input.setMinLines(5);
-        input.setGravity(Gravity.TOP | Gravity.START);
-        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        new android.app.AlertDialog.Builder(this)
-            .setTitle("Importar configuração")
-            .setMessage("Cole aqui o JSON exportado pelo OCR Auto Clicker.")
-            .setView(input)
-            .setNegativeButton("Cancelar", null)
-            .setPositiveButton("IMPORTAR", (dialog, which) -> {
-                try {
-                    JSONObject root = new JSONObject(input.getText().toString().trim());
-                    if (!"tubo-ocr-config".equals(root.optString("format"))) {
-                        throw new IllegalArgumentException("Arquivo de configuração inválido.");
-                    }
-                    String mode = root.optString("click_mode", "custom");
-                    if (!"solo".equals(mode) && !"custom".equals(mode) && !"sequence".equals(mode)) mode = "custom";
-                    long ocrMs = Math.max(500L, Math.min(86400000L, root.optLong("ocr_interval_ms", 2000L)));
-                    long clickMs = Math.max(250L, Math.min(86400000L, root.optLong("click_default_interval_ms", 2000L)));
-                    long timerMs = Math.max(0L, Math.min(86400000L, root.optLong("click_timer_duration_ms", 0L)));
-                    long limit = Math.max(0L, Math.min(10000000L, root.optLong("click_limit", 0L)));
-                    int count = Math.max(1, Math.min(100, root.optInt("point_count", 3)));
-                    JSONArray points = root.optJSONArray("points");
-                    SharedPreferences.Editor edit = getSharedPreferences("automation", MODE_PRIVATE).edit();
-                    edit.putString("ocr_word", root.optString("ocr_word", "YES"))
-                        .putLong("ocr_interval_ms", ocrMs)
-                        .putInt("ocr_interval_unit", Math.max(0, Math.min(2, root.optInt("ocr_interval_unit", 1))))
-                        .putLong("click_default_interval_ms", clickMs)
-                        .putInt("click_interval_unit", Math.max(0, Math.min(2, root.optInt("click_interval_unit", 1))))
-                        .putLong("click_total", Math.max(0L, root.optLong("click_total", 0L)))
-                        .putString("click_history", root.optString("click_history", ""))
-                        .putString("click_mode", mode)
-                        .putLong("click_timer_duration_ms", timerMs)
-                        .putLong("click_limit", limit)
-                        .putInt("point_count", count);
-                    for (int i = 0; i < count; i++) {
-                        JSONObject point = points != null && i < points.length() ? points.optJSONObject(i) : null;
-                        if (point == null) continue;
-                        int x = point.optInt("x", -1);
-                        int y = point.optInt("y", -1);
-                        if (x >= 0) edit.putInt("point_x_" + i, x);
-                        if (y >= 0) edit.putInt("point_y_" + i, y);
-                        long interval = point.optLong("interval_ms", 0L);
-                        if (interval > 0L) edit.putLong("point_interval_ms_" + i, Math.max(250L, Math.min(86400000L, interval)));
-                        else edit.remove("point_interval_ms_" + i);
-                    }
-                    edit.apply();
-                    word.setText(root.optString("ocr_word", "YES"));
-                    ocrUnit.setSelection(Math.max(0, Math.min(2, root.optInt("ocr_interval_unit", ocrUnit.getSelectedItemPosition()))));
-                    clickUnit.setSelection(Math.max(0, Math.min(2, root.optInt("click_interval_unit", clickUnit.getSelectedItemPosition()))));
-                    int ocrUnitValue = ocrUnit.getSelectedItemPosition();
-                    long ocrMultiplier = ocrUnitValue == 0 ? 1L : (ocrUnitValue == 1 ? 1000L : 60000L);
-                    long clickMultiplier = clickUnit.getSelectedItemPosition() == 0 ? 1L :
-                        (clickUnit.getSelectedItemPosition() == 1 ? 1000L : 60000L);
-                    ocrInterval.setText(String.valueOf(Math.max(1L, ocrMs / ocrMultiplier)));
-                    clickInterval.setText(String.valueOf(Math.max(1L, clickMs / clickMultiplier)));
-                    clickMode.setSelection("solo".equals(mode) ? 0 : ("sequence".equals(mode) ? 2 : 1));
-                    status.setText("Configuração importada. Inicie novamente para aplicar todos os alvos.");
-                    Toast.makeText(this, "Importação concluída.", Toast.LENGTH_SHORT).show();
-                } catch (Exception e) {
-                    status.setText(e.getMessage() == null ? "JSON inválido." : e.getMessage());
-                }
-            }).show();
+    private Button button(String text) {
+        Button b = new Button(this);
+        b.setText(text);
+        return b;
     }
 
-    private void beginCapture() {
-        if (!TapAccessibilityService.isReady()) {
-            status.setText("Ative primeiro a acessibilidade do OCR Auto Clicker.");
-            return;
-        }
-        if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) {
-            status.setText("Libere a permissão de sobreposição primeiro.");
-            return;
-        }
-        MediaProjectionManager manager =
-            (MediaProjectionManager) getSystemService(Context.MEDIA_PROJECTION_SERVICE);
-        startActivityForResult(manager.createScreenCaptureIntent(), REQUEST_CAPTURE);
+    private LinearLayout.LayoutParams matchWrap() {
+        return new LinearLayout.LayoutParams(-1, -2);
     }
 
-    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_CAPTURE && resultCode == RESULT_OK && data != null) {
-            // Stop an earlier capture service before creating the new overlays/settings.
-            stopService(new Intent(this, ScreenCaptureService.class));
-            Intent service = new Intent(this, ScreenCaptureService.class);
-            service.putExtra("resultCode", resultCode);
-            service.putExtra("captureData", data);
-            if (Build.VERSION.SDK_INT >= 26) startForegroundService(service);
-            else startService(service);
-            status.setText("OCR ativo. Modo " +
-                (clickMode.getSelectedItemPosition()==0?"Solo":(clickMode.getSelectedItemPosition()==2?"Sequencial":"Personalizado")) + ".");
-        } else status.setText("Captura de tela cancelada.");
+    private int dp(float value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
+
+    private void setStatus(String text) {
+        if (status != null) status.setText("Status: " + text);
+        else Toast.makeText(this, text, Toast.LENGTH_SHORT).show();
     }
 }
