@@ -34,13 +34,15 @@ public class AutoClickOverlayManager {
     private boolean running;
     private Runnable scheduler;
     private long nextDue[];
-    private int clickUnit;\n    private boolean soloMode;
+    private int clickUnit;
+    private boolean soloMode;
 
     public AutoClickOverlayManager(Context c, int w, int h) {
         context=c; screenW=w; screenH=h;
         wm=(WindowManager)c.getSystemService(Context.WINDOW_SERVICE);
         prefs=c.getSharedPreferences("automation", Context.MODE_PRIVATE);
-        clickUnit=prefs.getInt("click_interval_unit",prefs.getInt("global_unit",1));\n        soloMode="solo".equals(prefs.getString("click_mode","custom"));
+        clickUnit=prefs.getInt("click_interval_unit",prefs.getInt("global_unit",1));
+        soloMode="solo".equals(prefs.getString("click_mode","custom"));
     }
 
     public void show() {
