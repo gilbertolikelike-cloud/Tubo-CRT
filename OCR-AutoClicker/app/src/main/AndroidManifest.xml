@@ -20,6 +20,15 @@
         </activity>
 
         <service
+            android:name=".AutoClickService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User-enabled floating auto-tap controls" />
+        </service>
+
+        <service
             android:name=".ScreenCaptureService"
             android:exported="false"
             android:foregroundServiceType="mediaProjection|specialUse">
