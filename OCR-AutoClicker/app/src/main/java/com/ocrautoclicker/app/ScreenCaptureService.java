@@ -133,9 +133,15 @@ public class ScreenCaptureService extends Service {
             bitmap=Bitmap.createBitmap(padded,0,0,screenWidth,screenHeight);
             padded.recycle();
             image.close();image=null;
-            Bitmap captured=bitmap;
+
+            // OCR only needs the user's search rectangle, not the entire display.
+            Rect cropArea=RegionOverlayManager.getZoneRect(this,0,screenWidth,screenHeight);
+            Bitmap cropped=Bitmap.createBitmap(bitmap,cropArea.left,cropArea.top,
+                cropArea.width(),cropArea.height());
+            if(!bitmap.isRecycled())bitmap.recycle();
+            Bitmap captured=cropped;
             recognizer.process(InputImage.fromBitmap(captured,0))
-                .addOnSuccessListener(this::handleText)
+                .addOnSuccessListener(result->handleText(result,cropArea))
                 .addOnFailureListener(error->{})
                 .addOnCompleteListener(task->{
                     try{if(!captured.isRecycled())captured.recycle();}catch(Exception ignored){}
@@ -150,12 +156,11 @@ public class ScreenCaptureService extends Service {
         }
     }
 
-    private void handleText(Text result){
+    private void handleText(Text result,Rect cropArea){
         SharedPreferences prefs=getSharedPreferences("automation",Context.MODE_PRIVATE);
         String wanted=prefs.getString("ocr_word","YES");
         if(wanted==null||wanted.trim().isEmpty())return;
         wanted=wanted.trim().toLowerCase(Locale.ROOT);
-        Rect area=RegionOverlayManager.getZoneRect(this,0,screenWidth,screenHeight);
         for(Text.TextBlock block:result.getTextBlocks()){
             for(Text.Line line:block.getLines()){
                 String lineText=line.getText().toLowerCase(Locale.ROOT);
@@ -164,14 +169,18 @@ public class ScreenCaptureService extends Service {
                     String value=element.getText().toLowerCase(Locale.ROOT);
                     Rect box=element.getBoundingBox();
                     if(box!=null&&containsWholeWord(value,wanted)
-                        &&area.contains(box.centerX(),box.centerY())){
-                        TapAccessibilityService.tapOcr(box.centerX(),box.centerY());
+                        &&box.centerX()>=0&&box.centerY()>=0
+                        &&box.centerX()<cropArea.width()&&box.centerY()<cropArea.height()){
+                        TapAccessibilityService.tapOcr(cropArea.left+box.centerX(),
+                            cropArea.top+box.centerY());
                         return;
                     }
                 }
                 Rect lineBox=line.getBoundingBox();
-                if(lineBox!=null&&area.contains(lineBox.centerX(),lineBox.centerY())){
-                    TapAccessibilityService.tapOcr(lineBox.centerX(),lineBox.centerY());
+                if(lineBox!=null&&lineBox.centerX()>=0&&lineBox.centerY()>=0
+                    &&lineBox.centerX()<cropArea.width()&&lineBox.centerY()<cropArea.height()){
+                    TapAccessibilityService.tapOcr(cropArea.left+lineBox.centerX(),
+                        cropArea.top+lineBox.centerY());
                     return;
                 }
             }
