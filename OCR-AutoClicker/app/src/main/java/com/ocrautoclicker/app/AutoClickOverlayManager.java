@@ -30,12 +30,15 @@ public class AutoClickOverlayManager {
     private final List<Point> points = new ArrayList<>();
     private final SharedPreferences prefs;
     private View panel, dragHandle;
+    private TextView timerButton;
     private WindowManager.LayoutParams panelParams, dragParams;
     private boolean running;
     private Runnable scheduler;
     private long nextDue[];
     private int clickUnit;
     private boolean soloMode;
+    private long timerDurationMs;
+    private long runEndsAt;
 
     public AutoClickOverlayManager(Context c, int w, int h) {
         context=c; screenW=w; screenH=h;
@@ -43,6 +46,7 @@ public class AutoClickOverlayManager {
         prefs=c.getSharedPreferences("automation", Context.MODE_PRIVATE);
         clickUnit=prefs.getInt("click_interval_unit",prefs.getInt("global_unit",1));
         soloMode="solo".equals(prefs.getString("click_mode","custom"));
+        timerDurationMs=Math.max(0L,Math.min(86400000L,prefs.getLong("click_timer_duration_ms",0L)));
     }
 
     public void show() {
@@ -72,12 +76,16 @@ public class AutoClickOverlayManager {
         bar.setBackground(bg);
         TextView plus=button("+"); TextView minus=button("−");
         TextView play=button("▶"); TextView pause=button("⏸");
-        TextView count=button("3"); count.setTag("count");
-        bar.addView(plus); bar.addView(minus); bar.addView(play); bar.addView(pause); bar.addView(count);
+        timerButton=button("⏱");
+        TextView count=button("1"); count.setTag("count");
+        bar.addView(plus); bar.addView(minus); bar.addView(play); bar.addView(pause);
+        bar.addView(timerButton); bar.addView(count);
         plus.setOnClickListener(v->addPoint(true));
         minus.setOnClickListener(v->removeLastPoint());
         play.setOnClickListener(v->startClicks());
         pause.setOnClickListener(v->pauseClicks());
+        timerButton.setOnClickListener(v->showTimerDialog());
+        updateTimerButton();
         panel=bar;
         panelParams=params(12,screenH-130,WindowManager.LayoutParams.WRAP_CONTENT,48);
         wm.addView(panel,panelParams);
@@ -125,6 +133,10 @@ public class AutoClickOverlayManager {
     }
 
     private void addPoint(boolean save) {
+        if(soloMode&&!points.isEmpty()) {
+            android.widget.Toast.makeText(context, "No modo Solo só pode existir uma bolinha.", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
         boolean resume=running;
         if(resume)pauseClicks();
         if(points.size()>=MAX_POINTS) {
@@ -174,19 +186,25 @@ public class AutoClickOverlayManager {
     }
 
     private void removeLastPoint() {
+        if(soloMode&&points.size()<=1) {
+            android.widget.Toast.makeText(context, "No modo Solo a bolinha única não pode ser removida.", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }
         boolean resume=running;
         if(resume)pauseClicks();
         if(points.isEmpty()) return;
         Point p=points.remove(points.size()-1);
         try{wm.removeView(p.view);}catch(Exception ignored){}
-        prefs.edit().putInt("point_count",points.size()).apply();
+        prefs.edit().putInt("point_count",points.size())
+            .remove("point_x_"+p.index).remove("point_y_"+p.index)
+            .remove("point_interval_ms_"+p.index).apply();
         updatePanelCount();
         if(resume&&!points.isEmpty())startClicks();
     }
 
     private void updatePanelCount() {
         if(panel instanceof LinearLayout){
-            TextView t=(TextView)((LinearLayout)panel).getChildAt(4);
+            TextView t=(TextView)((LinearLayout)panel).getChildAt(5);
             t.setText(String.valueOf(points.size()));
         }
     }
@@ -194,6 +212,35 @@ public class AutoClickOverlayManager {
     private void savePoint(Point p) {
         prefs.edit().putInt("point_x_"+p.index,p.params.x)
             .putInt("point_y_"+p.index,p.params.y).apply();
+    }
+
+    private void updateTimerButton() {
+        if(timerButton==null)return;
+        timerButton.setText(timerDurationMs<=0?"⏱":"⏱"+Math.max(1L,timerDurationMs/60000L)+"m");
+    }
+
+    private void showTimerDialog() {
+        EditText input=new EditText(context);
+        input.setInputType(InputType.TYPE_CLASS_NUMBER);
+        input.setText(timerDurationMs<=0?"0":String.valueOf(Math.max(1L,timerDurationMs/60000L)));
+        AlertDialog dialog=new AlertDialog.Builder(context)
+            .setTitle("Duração das bolinhas")
+            .setMessage("Tempo em minutos. Use 0 para executar sem limite de tempo.")
+            .setView(input)
+            .setNegativeButton("Cancelar",null)
+            .setPositiveButton("Salvar",(d,w)->{
+                try{
+                    long minutes=Long.parseLong(input.getText().toString().trim());
+                    if(minutes<0||minutes>1440)throw new NumberFormatException();
+                    timerDurationMs=minutes*60000L;
+                    prefs.edit().putLong("click_timer_duration_ms",timerDurationMs).apply();
+                    updateTimerButton();
+                }catch(Exception ignored){
+                    android.widget.Toast.makeText(context,"Informe de 0 a 1440 minutos.",android.widget.Toast.LENGTH_SHORT).show();
+                }
+            }).create();
+        dialog.show();
+        if(dialog.getWindow()!=null)dialog.getWindow().setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY);
     }
 
     private long globalIntervalMs() {
@@ -246,11 +293,17 @@ public class AutoClickOverlayManager {
         running=true;
         nextDue=new long[points.size()];
         long now=android.os.SystemClock.elapsedRealtime();
+        runEndsAt=timerDurationMs>0?now+timerDurationMs:0L;
         for(int i=0;i<points.size();i++) nextDue[i]=now+(i*35L);
         scheduler=new Runnable(){
             @Override public void run(){
                 if(!running)return;
                 long t=android.os.SystemClock.elapsedRealtime();
+                if(runEndsAt>0L&&t>=runEndsAt){
+                    pauseClicks();
+                    android.widget.Toast.makeText(context,"Tempo configurado finalizado.",android.widget.Toast.LENGTH_SHORT).show();
+                    return;
+                }
                 long soon=Long.MAX_VALUE;
                 for(int i=0;i<points.size();i++){
                     if(i>=nextDue.length)break;
@@ -273,6 +326,7 @@ public class AutoClickOverlayManager {
 
     private void pauseClicks() {
         running=false;
+        runEndsAt=0L;
         if(scheduler!=null)main.removeCallbacks(scheduler);
         scheduler=null;nextDue=null;
         // Restore touch input so the user can drag and configure the points again.
