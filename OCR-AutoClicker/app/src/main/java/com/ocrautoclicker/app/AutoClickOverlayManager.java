@@ -239,7 +239,7 @@ public class AutoClickOverlayManager {
         int x=prefs.getInt("point_x_"+i,screenW/2 + ((i%5)-2)*18);
         int y=prefs.getInt("point_y_"+i,screenH/2 + ((i%7)-3)*18);
         Point point=new Point(i);
-        TextView dot=button(String.valueOf(i+1));
+        TextView dot=actionButton(String.valueOf(i+1), 0xFF087FBF);
         dot.setTextSize(12);
         GradientDrawable shape=new GradientDrawable();
         shape.setShape(GradientDrawable.OVAL);
