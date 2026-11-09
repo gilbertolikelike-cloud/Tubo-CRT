@@ -37,9 +37,21 @@ object ScreenCapture {
     private var latest: Image? = null
     private var thread: HandlerThread? = null
 
+    private var handler: Handler? = null
+
     @Volatile
     var active = false
         private set
+
+    private val onImage = ImageReader.OnImageAvailableListener { rd ->
+        val img = try { rd.acquireLatestImage() } catch (e: Exception) { null }
+        if (img != null) {
+            synchronized(lock) {
+                latest?.close()
+                latest = img
+            }
+        }
+    }
 
     fun start(ctx: Context, code: Int, data: Intent) {
         stop()
@@ -57,22 +69,34 @@ object ScreenCapture {
         }, h)
 
         val r = ImageReader.newInstance(m.widthPixels, m.heightPixels, PixelFormat.RGBA_8888, 3)
-        r.setOnImageAvailableListener({ rd ->
-            val img = try { rd.acquireLatestImage() } catch (e: Exception) { null }
-            if (img != null) {
-                synchronized(lock) {
-                    latest?.close()
-                    latest = img
-                }
-            }
-        }, h)
+        r.setOnImageAvailableListener(onImage, h)
         val d = p.createVirtualDisplay(
             "ocr-capture", m.widthPixels, m.heightPixels, m.densityDpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, r.surface, null, null
         )
         synchronized(lock) {
-            projection = p; reader = r; display = d; thread = t
+            projection = p; reader = r; display = d; thread = t; handler = h
             active = true
+        }
+    }
+
+    /** Chamado quando a tela gira: refaz o tamanho da captura. */
+    fun resize(ctx: Context) {
+        synchronized(lock) {
+            val d = display ?: return
+            val h = handler ?: return
+            val wm = ctx.getSystemService(Context.WINDOW_SERVICE) as WindowManager
+            val m = DisplayMetrics()
+            @Suppress("DEPRECATION")
+            wm.defaultDisplay.getRealMetrics(m)
+            val old = reader
+            val r = ImageReader.newInstance(m.widthPixels, m.heightPixels, PixelFormat.RGBA_8888, 3)
+            r.setOnImageAvailableListener(onImage, h)
+            latest?.close(); latest = null
+            d.resize(m.widthPixels, m.heightPixels, m.densityDpi)
+            d.surface = r.surface
+            reader = r
+            old?.close()
         }
     }
 
@@ -147,7 +171,7 @@ class CaptureService : Service() {
         if (data != null) {
             try {
                 ScreenCapture.start(this, code, data)
-                AutoClickService.instance?.showOverlay()
+                AutoClickService.instance?.enable(Mode.OCR)
             } catch (e: Exception) {
                 stopForeground(true)
                 stopSelf()

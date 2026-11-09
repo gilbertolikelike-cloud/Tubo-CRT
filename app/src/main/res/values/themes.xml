@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="AppTheme" parent="android:Theme.Material">
-        <item name="android:colorPrimary">#00796B</item>
-        <item name="android:colorPrimaryDark">#004D40</item>
+        <item name="android:colorPrimary">#00897B</item>
+        <item name="android:colorPrimaryDark">#00695C</item>
+        <item name="android:colorAccent">#E91E63</item>
+        <item name="android:windowBackground">@color/bg</item>
+    </style>
+
+    <style name="DlgTheme" parent="android:Theme.Material.Dialog.Alert">
         <item name="android:colorAccent">#E91E63</item>
     </style>
 </resources>

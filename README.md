@@ -1,39 +1,34 @@
 # OCR Auto Clicker
 
-Auto clicker com modo **OCR**: você coloca uma caixa na tela, digita um texto (ex.: `YES`) e o app
-lê só aquela caixa; se o texto estiver lá, ele clica. Se não estiver, espera o tempo que você
-escolheu (ex.: 2 s) e lê de novo.
+Auto clicker no estilo do app original, com três modos:
 
-## Como gerar o APK
+- **Alvo único** – um alvo, intervalo (ms / s / min), parar após (indefinido / tempo / ciclos), Anti-Detecção.
+- **Multi alvos** – vários alvos numerados (toques e deslizes, 12 por página), atraso por alvo,
+  configurações salvas ("Config 1", "Config 2"...), Gerenciador de configurações.
+- **OCR (novo)** – uma caixa verde lê o texto da tela (ex.: `YES`); se achar, clica; se não, espera o
+  tempo escolhido no app e lê de novo.
 
-**Opção A — Android Studio (PC):** abra a pasta do projeto, espere o Gradle sincronizar,
-`Build > Build APK(s)`. O APK fica em `app/build/outputs/apk/debug/app-debug.apk`.
+Telas do app: principal (3 blocos + Outros), Configurações de cada modo, Instruções,
+Configurações padrão (tamanho do alvo e da barra) e Solução de problemas.
 
-**Opção B — sem PC (GitHub Actions):** crie um repositório no GitHub, envie todos os arquivos
-(incluindo a pasta `.github`), vá na aba **Actions > Build APK > Run workflow** e baixe o artefato
-`OcrAutoClicker-debug-apk` quando terminar.
+## Gerar o APK
+GitHub Actions (aba **Actions > Build APK**) ou Android Studio (*Build APK*).
 
-## Como usar
-
-1. Instale o APK. No Android 13+: *Configurações > Apps > OCR Auto Clicker > ⋮ >
-   **Permitir configurações restritas***.
-2. *Acessibilidade > Apps instalados > OCR Auto Clicker > Ativar*.
-3. Abra o app, escolha o modo, o texto e o tempo de leitura, e toque em **HABILITAR** (no modo OCR, aceite o pedido de gravar a tela).
-4. Arraste a caixa verde para cima do lugar onde o texto aparece (bolinha do canto = tamanho).
-5. Toque em ▶. O texto pequeno na barra mostra o que o OCR leu (`✗ li: ...`) ou `✓ achou!`.
+## Usar
+1. Ative o serviço **OCR Auto Clicker** em Acessibilidade.
+2. Escolha o modo e toque em **HABILITAR**. No modo OCR o Android pede permissão para gravar a tela: aceite.
+3. Posicione alvos / caixa, toque em ▶. O texto pequeno na barra mostra o status (no OCR: o que foi lido).
 
 ## Arquivos
-
-- `AutoClickService.kt` – serviço de acessibilidade (toque na tela)
-- `ScreenCapture.kt` – captura da tela (MediaProjection) + serviço de notificação
-- `ClickEngine.kt` – loop de cliques, captura da tela, OCR (ML Kit), decisão de clicar
-- `Overlay.kt` – barra flutuante, alvo e caixa OCR
-- `MainActivity.kt` – tela de configurações
-- `Cfg.kt` – configurações salvas
+- `MainActivity.kt`, `PageActivity.kt` – telas do app
+- `Ui.kt` – ícones desenhados, painéis de configuração, diálogos
+- `Overlay.kt` – barra flutuante, alvos, deslizes, paginador, caixa OCR
+- `ClickEngine.kt` – cliques, multi alvos, OCR (ML Kit), parar após, Anti-Detecção
+- `ScreenCapture.kt` – captura de tela (MediaProjection) + serviço de notificação
+- `AutoClickService.kt` – serviço de acessibilidade
+- `Model.kt` – configurações e dados salvos
 
 ## Limitações
-
-- Android 10+. A tela é lida via MediaProjection: o Android pede permissão de gravar a tela cada vez que você liga o modo OCR e mostra uma notificação enquanto ativo.
-- Apps que bloqueiam print (FLAG_SECURE: bancos, alguns DRM) aparecem pretos → OCR não lê.
-- Tempo mínimo de leitura: 0,5 s.
-- Se girar a tela, desligue e ligue a barra para reposicionar.
+- Android 10+.
+- Apps que bloqueiam captura de tela (FLAG_SECURE) aparecem pretos no OCR.
+- Tempo mínimo de leitura do OCR: 0,5 s.
