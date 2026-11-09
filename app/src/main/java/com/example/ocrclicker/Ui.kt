@@ -187,6 +187,8 @@ object Ui {
     val BLUE = 0xFF2196F3.toInt()
     val WARN = 0xFFFFA000.toInt()
     val LINE = 0xFF444444.toInt()
+    /** Cor do painel flutuante (mesmo azul-índigo escuro do Reddit). */
+    val BAR = 0xF2040017.toInt()
 
     fun text(ctx: Context, s: String, sp: Float = 14f, color: Int = TEXT, bold: Boolean = false): TextView {
         val t = TextView(ctx)

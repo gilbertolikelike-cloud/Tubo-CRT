@@ -9,6 +9,7 @@ import android.provider.Settings
 import android.view.Gravity
 import android.view.Menu
 import android.view.MenuItem
+import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -18,6 +19,10 @@ class MainActivity : Activity() {
 
     private lateinit var store: Store
     private lateinit var content: LinearLayout
+
+    // modo que estava sendo ligado quando o Android pediu a permissão de captura
+    private var pendingMode = Mode.NONE
+    private var pendingWithOcr = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -40,6 +45,8 @@ class MainActivity : Activity() {
         content.removeAllViews()
         val svc = AutoClickService.instance
         val active = if (svc == null) Mode.NONE else AutoClickService.mode
+        val ocrWith = store.ocrWith
+        val withLabel = if (ocrWith) "HABILITAR + OCR" else "HABILITAR"
 
         if (svc == null) {
             val c = Ui.card(this)
@@ -53,13 +60,13 @@ class MainActivity : Activity() {
 
         // ---- modo de alvo único ----
         content.addView(section(
-            "MODO DE ALVO ÚNICO", active, Mode.SINGLE,
+            "MODO DE ALVO ÚNICO", active, Mode.SINGLE, withLabel,
             listOf(item(IconView.GEAR, "Configurações") { PageActivity.open(this, PageActivity.SINGLE) })
         ))
 
         // ---- modo de multi alvos ----
         content.addView(section(
-            "MODO DE MULTI ALVOS", active, Mode.MULTI,
+            "MODO DE MULTI ALVOS", active, Mode.MULTI, withLabel,
             listOf(
                 item(IconView.GEAR, "Configurações") { PageActivity.open(this, PageActivity.MULTI) },
                 item(IconView.INFO, "Instruções") { PageActivity.open(this, PageActivity.INSTR) },
@@ -67,11 +74,38 @@ class MainActivity : Activity() {
             )
         ))
 
-        // ---- modo OCR (novo) ----
-        content.addView(section(
-            "MODO OCR (LER TEXTO E CLICAR)", active, Mode.OCR,
-            listOf(item(IconView.GEAR, "Configurações") { PageActivity.open(this, PageActivity.OCR) })
+        // ---- modo OCR: sozinho ou junto com os outros ----
+        val locked = active != Mode.NONE
+        val ocrCard = Ui.card(this)
+        ocrCard.addView(Ui.text(this, "MODO OCR (LER TEXTO E CLICAR)", 13f, Ui.TEXT2))
+        ocrCard.addView(Ui.row(this, IconView.GEAR, "Configurações", !locked) {
+            PageActivity.open(this, PageActivity.OCR)
+        })
+        val cb = CheckBox(this)
+        cb.text = "Usar o OCR junto com os modos acima"
+        cb.isChecked = ocrWith
+        cb.isEnabled = !locked
+        cb.alpha = if (locked) 0.4f else 1f
+        cb.setOnCheckedChangeListener { _, v ->
+            store.ocrWith = v
+            content.post { build() }
+        }
+        ocrCard.addView(cb)
+        ocrCard.addView(Ui.text(
+            this,
+            if (ocrWith) "Ligado: o HABILITAR de cima também mostra a caixa verde do OCR e lê a tela ao mesmo tempo."
+            else "Desligado: os modos acima rodam sem OCR. O botão abaixo liga só o OCR.",
+            12f, Ui.TEXT2
         ))
+        if (active == Mode.OCR) {
+            ocrCard.addView(Ui.bigButton(this, "DESABILITAR", 0xFF757575.toInt(), true) {
+                AutoClickService.instance?.disable()
+                build()
+            })
+        } else {
+            ocrCard.addView(Ui.bigButton(this, "HABILITAR SÓ O OCR", Ui.PINK, !locked) { enableMode(Mode.OCR) })
+        }
+        content.addView(ocrCard)
 
         // ---- outros ----
         val others = Ui.card(this)
@@ -84,14 +118,14 @@ class MainActivity : Activity() {
         })
         content.addView(others)
 
-        val ver = Ui.text(this, "Ver 1.0", 12f, Ui.TEXT2)
+        val ver = Ui.text(this, "Ver 1.1", 12f, Ui.TEXT2)
         ver.gravity = Gravity.CENTER
         content.addView(ver, LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP))
     }
 
     /** Um bloco da tela inicial: título, linhas e o botão HABILITAR/DESABILITAR. */
     private fun section(
-        title: String, active: Int, mode: Int,
+        title: String, active: Int, mode: Int, enableLabel: String,
         rows: List<Triple<Int, String, () -> Unit>>
     ): LinearLayout {
         val c = Ui.card(this)
@@ -104,7 +138,7 @@ class MainActivity : Activity() {
                 build()
             })
         } else {
-            c.addView(Ui.bigButton(this, "HABILITAR", Ui.PINK, !locked) { enableMode(mode) })
+            c.addView(Ui.bigButton(this, enableLabel, Ui.PINK, !locked) { enableMode(mode) })
         }
         return c
     }
@@ -134,19 +168,24 @@ class MainActivity : Activity() {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
             return
         }
-        if (m == Mode.OCR) {
+        // OCR junto: vale para único / multi quando a opção está marcada
+        val withOcr = m != Mode.OCR && store.ocrWith
+        val needOcr = m == Mode.OCR || withOcr
+        if (needOcr) {
             if (store.word.isEmpty()) {
                 toast("Digite o texto a procurar em Configurações do modo OCR")
                 return
             }
             if (!ScreenCapture.active) {
                 // O Android pergunta se pode "gravar a tela": é assim que o OCR enxerga a tela.
+                pendingMode = m
+                pendingWithOcr = withOcr
                 val mpm = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
                 startActivityForResult(mpm.createScreenCaptureIntent(), 100)
                 return
             }
         }
-        svc.enable(m)
+        svc.enable(m, withOcr)
         moveTaskToBack(true)
     }
 
@@ -155,9 +194,13 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode != 100) return
         if (resultCode == RESULT_OK && data != null) {
-            // O CaptureService liga a captura e, em seguida, mostra a barra do modo OCR.
+            // O CaptureService liga a captura e, em seguida, mostra a barra do modo pedido.
             startForegroundService(
-                Intent(this, CaptureService::class.java).putExtra("code", resultCode).putExtra("data", data)
+                Intent(this, CaptureService::class.java)
+                    .putExtra("code", resultCode)
+                    .putExtra("data", data)
+                    .putExtra("mode", pendingMode)
+                    .putExtra("withOcr", pendingWithOcr)
             )
             moveTaskToBack(true)
         } else {
@@ -179,11 +222,12 @@ class MainActivity : Activity() {
                 val t: TextView = Ui.text(
                     this,
                     "Auto clicker com modo único, multi alvos (toques e deslizes), configurações " +
-                            "salvas e modo OCR, que lê o texto de uma caixa na tela e clica quando o encontra.",
+                            "salvas e modo OCR, que lê o texto de uma caixa na tela e clica quando o encontra. " +
+                            "O OCR pode rodar sozinho ou junto com os outros modos.",
                     14f, Ui.TEXT
                 )
                 t.setPadding(dp(20), dp(12), dp(20), 0)
-                Ui.alert(this, false, "OCR Auto Clicker 1.0", t, "OK", null)
+                Ui.alert(this, false, "OCR Auto Clicker 1.1", t, "OK", null)
             }
             else -> return super.onOptionsItemSelected(item)
         }

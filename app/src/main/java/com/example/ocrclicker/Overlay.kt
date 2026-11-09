@@ -36,7 +36,8 @@ import kotlin.math.sin
 class Overlay(
     private val svc: AutoClickService,
     private val store: Store,
-    private val mode: Int
+    private val mode: Int,
+    private val withOcr: Boolean
 ) {
     private val PAGE = 12
     private val wm = svc.getSystemService(Context.WINDOW_SERVICE) as WindowManager
@@ -51,6 +52,9 @@ class Overlay(
     private val btn = dp(46 * barScale)
     private val tSize = dp(30 + store.targetPct * 0.6f)
     private val pad = dp(16)
+
+    /** OCR ligado: sozinho (Mode.OCR) ou junto com o modo único / multi alvos. */
+    private val ocrOn = mode == Mode.OCR || withOcr
 
     // ------------------------------------------------------------------ janelas
     private fun lp(w: Int, h: Int, x: Int, y: Int, touchable: Boolean = true): WindowManager.LayoutParams {
@@ -107,7 +111,7 @@ class Overlay(
     private val bar = LinearLayout(svc).apply {
         orientation = LinearLayout.VERTICAL
         background = GradientDrawable().apply {
-            setColor(0xD9000000.toInt())
+            setColor(Ui.BAR)
             cornerRadius = dp(8).toFloat()
         }
         setPadding(dp(2), dp(4), dp(2), dp(4))
@@ -119,17 +123,39 @@ class Overlay(
         if (store.barY >= 0) store.barY else sh() / 4
     )
 
-    // ------------------------------------------------------------------ motor
+    // ------------------------------------------------------------------ motores
+    // engine = modo único / multi; ocrEngine = leitura OCR (os dois podem rodar juntos)
+    private var stPrimary = ""
+    private var stOcr = ""
+
+    private fun refreshStatus() {
+        val t = listOf(stPrimary, stOcr).filter { it.isNotEmpty() }.joinToString("\n")
+        statusTv.visibility = if (t.isEmpty()) View.GONE else View.VISIBLE
+        statusTv.text = t
+    }
+
     private val engine = ClickEngine(
         svc,
-        status = { s -> main.post { statusTv.visibility = View.VISIBLE; statusTv.text = s } },
-        onFinished = { main.post { setRunningUi(false) } }
+        status = { s -> main.post { stPrimary = s; refreshStatus() } },
+        onFinished = { main.post { if (!anyRunning()) setRunningUi(false) } }
+    )
+    private val ocrEngine = ClickEngine(
+        svc,
+        status = { s -> main.post { stOcr = if (mode == Mode.OCR) s else "OCR: $s"; refreshStatus() } },
+        onFinished = { main.post { if (!anyRunning()) setRunningUi(false) } }
     )
 
+    private fun anyRunning() = engine.isRunning() || ocrEngine.isRunning()
+
     // ------------------------------------------------------------------ alvo único / ponto fixo do OCR
-    private val showMain = mode == Mode.SINGLE || (mode == Mode.OCR && store.where == 2)
+    private val showMain = mode == Mode.SINGLE
     private var mainView: TargetView? = null
     private var mainLp: WindowManager.LayoutParams? = null
+
+    // alvo fixo do OCR (anel verde), só quando "Onde clicar" = alvo
+    private val showOcrTarget = ocrOn && store.where == 2
+    private var ocrTargetView: TargetView? = null
+    private var ocrTargetLp: WindowManager.LayoutParams? = null
 
     // ------------------------------------------------------------------ caixa OCR
     private val boxLp = lp(
@@ -138,7 +164,7 @@ class Overlay(
         if (store.boxX >= 0) store.boxX else sw() / 2 - dp(120),
         if (store.boxY >= 0) store.boxY else sh() / 3
     )
-    private val boxView = BoxView(svc, wm, boxLp, pad, dp(48), dp(40) + 2 * pad) { saveBox() }
+    private val boxView = BoxView(svc, wm, boxLp, pad, dp(48), dp(40) + 2 * pad, { ocrDialog() }) { saveBox() }
 
     // ------------------------------------------------------------------ multi alvos
     private val configs: MutableList<Config> = if (mode == Mode.MULTI) store.configs() else mutableListOf()
@@ -164,7 +190,7 @@ class Overlay(
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         background = GradientDrawable().apply {
-            setColor(0xD9000000.toInt())
+            setColor(Ui.BAR)
             cornerRadius = dp(8).toFloat()
         }
         addView(prevTv)
@@ -188,18 +214,35 @@ class Overlay(
     }
 
     // ------------------------------------------------------------------ montagem
-    init {
+    private var collapsed = store.barCollapsed
+
+    /** Barra expandida: ▶ + ↷ − ⚙ ✥.  Encolhida (toque no ✥): só ▶ ✕ ✥ (como no app original). */
+    private fun buildBar() {
+        bar.removeAllViews()
         bar.addView(playIcon)
-        if (mode == Mode.MULTI) {
-            bar.addView(plusIcon)
-            bar.addView(swipeIcon)
-            bar.addView(minusIcon)
+        if (collapsed) {
+            bar.addView(closeIcon)
+        } else {
+            if (mode == Mode.MULTI) {
+                bar.addView(plusIcon)
+                bar.addView(swipeIcon)
+                bar.addView(minusIcon)
+            }
+            bar.addView(gearIcon)
         }
-        bar.addView(gearIcon)
-        bar.addView(closeIcon)
         bar.addView(moveIcon)
         bar.addView(statusTv)
+    }
 
+    private fun toggleCollapse() {
+        collapsed = !collapsed
+        store.barCollapsed = collapsed
+        buildBar()
+        try { wm.updateViewLayout(bar, barLp) } catch (e: Exception) { }
+    }
+
+    init {
+        buildBar()
         playIcon.setOnClickListener { toggle() }
         plusIcon.setOnClickListener { addTarget(false) }
         swipeIcon.setOnClickListener { addTarget(true) }
@@ -215,20 +258,28 @@ class Overlay(
     fun show() {
         try {
             if (mode == Mode.MULTI) wm.addView(lines, linesLp)
-            if (mode == Mode.OCR) {
+            if (ocrOn) {
                 boxLp.x = boxLp.x.coerceIn(0, maxOf(0, sw() - boxLp.width))
                 boxLp.y = boxLp.y.coerceIn(0, maxOf(0, sh() - boxLp.height))
                 wm.addView(boxView, boxLp)
             }
             if (showMain) {
-                val cx = if (mode == Mode.SINGLE) store.sX else store.oTx
-                val cy = if (mode == Mode.SINGLE) store.sY else store.oTy
                 val m = marker(
-                    0, tSize, if (cx >= 0) cx else sw() / 2, if (cy >= 0) cy else sh() / 2, false, true,
-                    onMove = { _, _ -> }, onDrop = { saveMain() }, onTap = { }
+                    0, tSize, if (store.sX >= 0) store.sX else sw() / 2, if (store.sY >= 0) store.sY else sh() / 2,
+                    false, true, onMove = { _, _ -> }, onDrop = { saveMain() }, onTap = { }
                 )
                 mainView = m.first
                 mainLp = m.second
+                wm.addView(m.first, m.second)
+            }
+            if (showOcrTarget) {
+                val m = marker(
+                    0, tSize, if (store.oTx >= 0) store.oTx else sw() / 2, if (store.oTy >= 0) store.oTy else sh() / 2 + dp(80),
+                    false, true, onMove = { _, _ -> }, onDrop = { saveOcrTarget() }, onTap = { },
+                    tint = 0xFF00E676.toInt()
+                )
+                ocrTargetView = m.first
+                ocrTargetLp = m.second
                 wm.addView(m.first, m.second)
             }
             if (mode == Mode.MULTI) renderPage()
@@ -242,9 +293,11 @@ class Overlay(
 
     fun destroy() {
         engine.release()
+        ocrEngine.release()
         val all = ArrayList<View>()
         all.add(bar); all.add(boxView); all.add(lines); all.add(pager)
         mainView?.let { all.add(it) }
+        ocrTargetView?.let { all.add(it) }
         for ((v, _) in pageMarkers) all.add(v)
         for (v in all) {
             try { wm.removeView(v) } catch (e: Exception) { }
@@ -256,9 +309,10 @@ class Overlay(
     /** Cria um alvo (anel azul). Arrastar move; só tocar chama [onTap]. */
     private fun marker(
         number: Int, size: Int, cx: Int, cy: Int, end: Boolean, touchable: Boolean,
-        onMove: (Int, Int) -> Unit, onDrop: () -> Unit, onTap: () -> Unit
+        onMove: (Int, Int) -> Unit, onDrop: () -> Unit, onTap: () -> Unit,
+        tint: Int? = null
     ): Pair<TargetView, WindowManager.LayoutParams> {
-        val v = TargetView(svc, number, end)
+        val v = TargetView(svc, number, end, tint)
         val p = lp(
             size, size,
             (cx - size / 2).coerceIn(0, maxOf(0, sw() - size)),
@@ -296,13 +350,14 @@ class Overlay(
 
     private fun saveMain() {
         val p = mainLp ?: return
-        val cx = p.x + tSize / 2
-        val cy = p.y + tSize / 2
-        if (mode == Mode.SINGLE) {
-            store.sX = cx; store.sY = cy
-        } else {
-            store.oTx = cx; store.oTy = cy
-        }
+        store.sX = p.x + tSize / 2
+        store.sY = p.y + tSize / 2
+    }
+
+    private fun saveOcrTarget() {
+        val p = ocrTargetLp ?: return
+        store.oTx = p.x + tSize / 2
+        store.oTy = p.y + tSize / 2
     }
 
     private fun saveBox() {
@@ -314,17 +369,28 @@ class Overlay(
         var sy = 0f
         var ox = 0
         var oy = 0
+        var moved = false
         moveIcon.setOnTouchListener { _, ev ->
             when (ev.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { sx = ev.rawX; sy = ev.rawY; ox = barLp.x; oy = barLp.y }
+                MotionEvent.ACTION_DOWN -> { sx = ev.rawX; sy = ev.rawY; ox = barLp.x; oy = barLp.y; moved = false }
                 MotionEvent.ACTION_MOVE -> {
-                    barLp.x = ox + (ev.rawX - sx).toInt()
-                    barLp.y = oy + (ev.rawY - sy).toInt()
-                    try { wm.updateViewLayout(bar, barLp) } catch (e: Exception) { }
+                    val dx = (ev.rawX - sx).toInt()
+                    val dy = (ev.rawY - sy).toInt()
+                    if (!moved && (abs(dx) > slop || abs(dy) > slop)) moved = true
+                    if (moved) {
+                        barLp.x = ox + dx
+                        barLp.y = oy + dy
+                        try { wm.updateViewLayout(bar, barLp) } catch (e: Exception) { }
+                    }
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    store.barX = barLp.x; store.barY = barLp.y
+                MotionEvent.ACTION_UP -> {
+                    if (moved) {
+                        store.barX = barLp.x; store.barY = barLp.y
+                    } else {
+                        toggleCollapse()          // só tocou no ✥: encolhe / expande a barra
+                    }
                 }
+                MotionEvent.ACTION_CANCEL -> { store.barX = barLp.x; store.barY = barLp.y }
             }
             true
         }
@@ -344,7 +410,7 @@ class Overlay(
         val cfg = config ?: return
         val from = page * PAGE
         val to = minOf(cfg.targets.size, from + PAGE)
-        val touch = !engine.isRunning()
+        val touch = !anyRunning()
         for (i in from until to) {
             val t = cfg.targets[i]
             val m = marker(
@@ -390,7 +456,7 @@ class Overlay(
     }
 
     private fun changePage(d: Int) {
-        if (engine.isRunning()) return
+        if (anyRunning()) return
         val np = (page + d).coerceIn(0, totalPages() - 1)
         if (np != page) {
             page = np
@@ -411,7 +477,7 @@ class Overlay(
     }
 
     private fun addTarget(swipe: Boolean) {
-        if (engine.isRunning()) return
+        if (anyRunning()) return
         val cfg = config ?: return
         val k = cfg.targets.size
         val cx = sw() / 2 + (k % 5 - 2) * dp(34)
@@ -428,7 +494,7 @@ class Overlay(
     }
 
     private fun removeLast() {
-        if (engine.isRunning()) return
+        if (anyRunning()) return
         val cfg = config ?: return
         if (cfg.targets.isEmpty()) return
         cfg.targets.removeAt(cfg.targets.size - 1)
@@ -454,44 +520,54 @@ class Overlay(
 
     // ------------------------------------------------------------------ executar / parar
     private fun toggle() {
-        if (engine.isRunning()) engine.stop() else startRun()
+        if (anyRunning()) {
+            engine.stop()
+            ocrEngine.stop()
+        } else {
+            startRun()
+        }
     }
 
     private fun startRun() {
+        setRunningUi(true)
         when (mode) {
             Mode.SINGLE -> {
-                val p = mainLp ?: return
-                setRunningUi(true)
-                engine.startSingle(
-                    Point(p.x + tSize / 2, p.y + tSize / 2), store.sIntervalMs,
-                    Stop(store.sStopMode, store.sStopSeconds.toLong(), store.sStopCount), store.sAnti
-                )
+                val p = mainLp
+                if (p != null) {
+                    engine.startSingle(
+                        Point(p.x + tSize / 2, p.y + tSize / 2), store.sIntervalMs,
+                        Stop(store.sStopMode, store.sStopSeconds.toLong(), store.sStopCount), store.sAnti
+                    )
+                }
             }
             Mode.MULTI -> {
-                val c = config ?: return
-                setRunningUi(true)
-                engine.startMulti(
-                    c.targets.map { it.copy() },
-                    Stop(c.stopMode, c.stopSeconds.toLong(), c.stopCount), c.anti
-                )
-            }
-            Mode.OCR -> {
-                val loc = IntArray(2)
-                boxView.getLocationOnScreen(loc)
-                val i = pad + dp(3)
-                val region = Rect(
-                    loc[0] + i, loc[1] + i, loc[0] + boxView.width - i, loc[1] + boxView.height - i
-                )
-                val mp = mainLp
-                val fixed = if (mp != null) Point(mp.x + tSize / 2, mp.y + tSize / 2) else Point(region.centerX(), region.centerY())
-                setRunningUi(true)
-                engine.startOcr(
-                    fixed, region,
-                    OcrParams(store.word, store.ignoreCase, store.ocrIntervalMs, store.where),
-                    Stop(store.oStopMode, store.oStopSeconds.toLong(), store.oStopCount), store.oAnti
-                )
+                val c = config
+                if (c != null) {
+                    engine.startMulti(
+                        c.targets.map { it.copy() },
+                        Stop(c.stopMode, c.stopSeconds.toLong(), c.stopCount), c.anti
+                    )
+                }
             }
         }
+        if (ocrOn) startOcr()
+    }
+
+    private fun startOcr() {
+        val loc = IntArray(2)
+        boxView.getLocationOnScreen(loc)
+        val i = pad + dp(3)
+        val region = Rect(
+            loc[0] + i, loc[1] + i, loc[0] + boxView.width - i, loc[1] + boxView.height - i
+        )
+        val tp = ocrTargetLp
+        val fixed = if (tp != null) Point(tp.x + tSize / 2, tp.y + tSize / 2)
+        else Point(region.centerX(), region.centerY())
+        ocrEngine.startOcr(
+            fixed, region,
+            OcrParams(store.word, store.ignoreCase, store.ocrIntervalMs, store.where),
+            Stop(store.oStopMode, store.oStopSeconds.toLong(), store.oStopCount), store.oAnti
+        )
     }
 
     private fun setRunningUi(on: Boolean) {
@@ -499,6 +575,7 @@ class Overlay(
         val touch = !on
         setTouchable(boxView, boxLp, touch)
         mainView?.let { v -> mainLp?.let { setTouchable(v, it, touch) } }
+        ocrTargetView?.let { v -> ocrTargetLp?.let { setTouchable(v, it, touch) } }
         for ((v, p) in pageMarkers) setTouchable(v, p, touch)
         barLp.flags = if (on) {
             barLp.flags or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
@@ -510,24 +587,40 @@ class Overlay(
 
     // ------------------------------------------------------------------ diálogos da engrenagem
     private fun gear() {
-        if (engine.isRunning()) return
+        if (anyRunning()) return
         when (mode) {
-            Mode.SINGLE -> {
-                val c = Ui.dctx(svc)
-                val panel = SinglePanel(c, true)
-                panel.load(store)
-                Ui.alert(svc, true, null, Ui.scrollPad(c, panel), "SALVAR", "CANCELAR") { panel.save(store) }
-            }
-            Mode.OCR -> {
-                val c = Ui.dctx(svc)
-                val panel = OcrPanel(c, true)
-                panel.load(store)
-                Ui.alert(svc, true, null, Ui.scrollPad(c, panel), "SALVAR", "CANCELAR") {
-                    panel.save(store)
-                    main.post { svc.enable(Mode.OCR) }      // recria a barra com as novas opções
-                }
-            }
+            Mode.SINGLE -> singleDialog()
+            Mode.OCR -> ocrDialog()
             else -> multiDialog()
+        }
+    }
+
+    private fun ocrButton(c: Context) =
+        Ui.bigButton(c, "CONFIGURAÇÕES DO OCR", 0xFF424242.toInt(), true) { ocrDialog() }
+            .also { it.setTextColor(Ui.PINK) }
+
+    private fun singleDialog() {
+        val c = Ui.dctx(svc)
+        val col = LinearLayout(c)
+        col.orientation = LinearLayout.VERTICAL
+        val panel = SinglePanel(c, true)
+        panel.load(store)
+        col.addView(panel)
+        if (ocrOn) {
+            col.addView(Ui.divider(c))
+            col.addView(ocrButton(c))
+        }
+        Ui.alert(svc, true, null, Ui.scrollPad(c, col), "SALVAR", "CANCELAR") { panel.save(store) }
+    }
+
+    private fun ocrDialog() {
+        if (anyRunning()) return
+        val c = Ui.dctx(svc)
+        val panel = OcrPanel(c, true)
+        panel.load(store)
+        Ui.alert(svc, true, null, Ui.scrollPad(c, panel), "SALVAR", "CANCELAR") {
+            panel.save(store)
+            main.post { svc.enable(mode, withOcr) }      // recria a barra com as novas opções
         }
     }
 
@@ -568,6 +661,10 @@ class Overlay(
         val stop = StopPanel(c, true, "Número de ciclos:")
         stop.load(cfg.stopMode, cfg.stopSeconds, cfg.stopCount, cfg.anti)
         col.addView(stop)
+        if (ocrOn) {
+            col.addView(Ui.divider(c))
+            col.addView(ocrButton(c))
+        }
 
         dlg = Ui.alert(svc, true, null, Ui.scrollPad(c, col), "SALVAR", "CANCELAR") {
             cfg.stopMode = stop.stopMode
@@ -580,7 +677,7 @@ class Overlay(
 
     /** Toque em um alvo: atraso (e duração do deslize). */
     private fun targetDialog(i: Int) {
-        if (engine.isRunning()) return
+        if (anyRunning()) return
         val t = config?.targets?.getOrNull(i) ?: return
         val c = Ui.dctx(svc)
         val col = LinearLayout(c)
@@ -614,16 +711,22 @@ class Overlay(
 // Views
 // =====================================================================================
 
-/** Anel azul (com o número em laranja no multi). [end] = ponta final de um deslize. */
-class TargetView(ctx: Context, private val number: Int, private val end: Boolean) : View(ctx) {
+/** Anel azul (número em laranja no multi). [end] = ponta final de um deslize. [tint] = cor própria (anel verde do OCR). */
+class TargetView(
+    ctx: Context,
+    private val number: Int,
+    private val end: Boolean,
+    private val tint: Int? = null
+) : View(ctx) {
     private val d = ctx.resources.displayMetrics.density
+    private val base: Int = tint ?: (if (end) 0xFFFF9800.toInt() else 0xFF2979FF.toInt())
     private val ring = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 3 * d
-        color = if (end) 0xFFFF9800.toInt() else 0xFF2979FF.toInt()
+        color = base
     }
     private val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = if (end) 0x33FF9800 else 0x332979FF
+        color = (base and 0x00FFFFFF) or 0x33000000
     }
     private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFF1744.toInt() }
     private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -688,8 +791,12 @@ class BoxView(
     private val pad: Int,
     private val handle: Int,
     private val minSize: Int,
+    private val onTap: () -> Unit,
     private val onDone: () -> Unit
 ) : View(ctx) {
+
+    private val touchSlop = ViewConfiguration.get(ctx).scaledTouchSlop
+    private var moved = false
 
     private val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeWidth = pad / 5f; color = 0xFF00E676.toInt()
@@ -714,20 +821,25 @@ class BoxView(
                 mode = if (e.x > width - handle && e.y > height - handle) 1 else 0
                 sx = e.rawX; sy = e.rawY
                 ox = lp.x; oy = lp.y; ow = lp.width; oh = lp.height
+                moved = false
             }
             MotionEvent.ACTION_MOVE -> {
                 val dx = (e.rawX - sx).toInt()
                 val dy = (e.rawY - sy).toInt()
-                if (mode == 0) {
-                    lp.x = ox + dx
-                    lp.y = oy + dy
-                } else {
-                    lp.width = maxOf(minSize, ow + dx)
-                    lp.height = maxOf(minSize, oh + dy)
+                if (!moved && (abs(dx) > touchSlop || abs(dy) > touchSlop)) moved = true
+                if (moved) {
+                    if (mode == 0) {
+                        lp.x = ox + dx
+                        lp.y = oy + dy
+                    } else {
+                        lp.width = maxOf(minSize, ow + dx)
+                        lp.height = maxOf(minSize, oh + dy)
+                    }
+                    try { wm.updateViewLayout(this, lp) } catch (ex: Exception) { }
                 }
-                try { wm.updateViewLayout(this, lp) } catch (ex: Exception) { }
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> onDone()
+            MotionEvent.ACTION_UP -> if (moved) onDone() else if (mode == 0) onTap()
+            MotionEvent.ACTION_CANCEL -> if (moved) onDone()
         }
         return true
     }

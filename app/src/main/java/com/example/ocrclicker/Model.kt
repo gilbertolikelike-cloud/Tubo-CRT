@@ -177,7 +177,15 @@ class Store(context: Context) {
         get() = i("boxH", -1)
         set(v) = put("boxH", v)
 
+    /** Usar o OCR junto com o modo único / multi alvos. */
+    var ocrWith: Boolean
+        get() = b("ocrWith", false)
+        set(v) = put("ocrWith", v)
+
     // ---------------- aparência ----------------
+    var barCollapsed: Boolean
+        get() = b("barCollapsed", false)
+        set(v) = put("barCollapsed", v)
     /** 0..100 -> tamanho do alvo. */
     var targetPct: Int
         get() = i("targetPct", 25)

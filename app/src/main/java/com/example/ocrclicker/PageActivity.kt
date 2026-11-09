@@ -111,10 +111,12 @@ class PageActivity : Activity() {
         line(IconView.SWIPE, "Adicionar um deslize: arraste o anel laranja para onde o dedo deve terminar")
         line(IconView.MINUS, "Remover o último alvo")
         line(IconView.GEAR, "Configurar este modo (tempo, parar após, Anti-Detecção, configurações salvas)")
-        line(IconView.CLOSE, "Fechar a barra")
-        line(IconView.MOVE, "Arraste para mover o painel")
-        line(IconView.BOX, "Modo OCR: arraste a caixa verde para cima do texto; a bolinha do canto muda o tamanho. " +
-                "O texto pequeno na barra mostra o que o OCR leu")
+        line(IconView.CLOSE, "Fechar a barra (o ✕ aparece quando a barra está encolhida)")
+        line(IconView.MOVE, "Arraste para mover o painel. Toque nele (sem arrastar) para encolher a barra e toque de novo para expandir")
+        line(IconView.BOX, "Modo OCR: arraste a caixa verde para cima do texto; a bolinha do canto muda o tamanho; " +
+                "toque na caixa para abrir as configurações do OCR. O texto pequeno na barra mostra o que o OCR leu")
+        line(IconView.TARGET, "OCR junto com os outros modos: marque “Usar o OCR junto” na tela inicial. " +
+                "O ▶ liga os cliques e a leitura ao mesmo tempo. Se “Onde clicar” for “No alvo”, aparece um anel verde")
     }
 
     // ------------------------------------------------------------------ Configurações padrão

@@ -22,6 +22,11 @@ class AutoClickService : AccessibilityService() {
         @Volatile
         var mode: Int = Mode.NONE
             private set
+
+        /** true = o OCR está ligado junto com o modo único / multi alvos. */
+        @Volatile
+        var withOcr: Boolean = false
+            private set
     }
 
     private var overlay: Overlay? = null
@@ -37,30 +42,33 @@ class AutoClickService : AccessibilityService() {
     override fun onInterrupt() {}
 
     /** Liga um modo: mostra a barra com as configurações atuais. */
-    fun enable(m: Int) {
+    fun enable(m: Int, ocr: Boolean = false) {
         overlay?.destroy()
         overlay = null
         mode = m
-        overlay = Overlay(this, Store(this), m).also { it.show() }
+        withOcr = ocr
+        overlay = Overlay(this, Store(this), m, ocr).also { it.show() }
     }
 
     /** Desliga a barra (e a captura de tela, se era o modo OCR). */
     fun disable() {
         overlay?.destroy()
         overlay = null
-        val was = mode
+        val usedOcr = mode == Mode.OCR || withOcr
         mode = Mode.NONE
-        if (was == Mode.OCR) CaptureService.stop(this)
+        withOcr = false
+        if (usedOcr) CaptureService.stop(this)
     }
 
     /** Girou a tela: ajusta a captura e recria a barra nas novas dimensões. */
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
         val m = mode
+        val w = withOcr
         if (m == Mode.NONE) return
         main.postDelayed({
             ScreenCapture.resize(this)
-            if (mode == m) enable(m)
+            if (mode == m) enable(m, w)
         }, 400)
     }
 
@@ -68,6 +76,7 @@ class AutoClickService : AccessibilityService() {
         overlay?.destroy()
         overlay = null
         mode = Mode.NONE
+        withOcr = false
         instance = null
         return super.onUnbind(intent)
     }
@@ -76,6 +85,7 @@ class AutoClickService : AccessibilityService() {
         overlay?.destroy()
         overlay = null
         mode = Mode.NONE
+        withOcr = false
         instance = null
         super.onDestroy()
     }

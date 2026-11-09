@@ -6,7 +6,8 @@ Auto clicker no estilo do app original, com três modos:
 - **Multi alvos** – vários alvos numerados (toques e deslizes, 12 por página), atraso por alvo,
   configurações salvas ("Config 1", "Config 2"...), Gerenciador de configurações.
 - **OCR (novo)** – uma caixa verde lê o texto da tela (ex.: `YES`); se achar, clica; se não, espera o
-  tempo escolhido no app e lê de novo.
+  tempo escolhido no app e lê de novo. Pode ligar **sozinho** ("HABILITAR SÓ O OCR") ou **junto** com o
+  alvo único / multi alvos (marque "Usar o OCR junto com os modos acima"): o ▶ roda os dois ao mesmo tempo.
 
 Telas do app: principal (3 blocos + Outros), Configurações de cada modo, Instruções,
 Configurações padrão (tamanho do alvo e da barra) e Solução de problemas.
@@ -17,7 +18,7 @@ GitHub Actions (aba **Actions > Build APK**) ou Android Studio (*Build APK*).
 ## Usar
 1. Ative o serviço **OCR Auto Clicker** em Acessibilidade.
 2. Escolha o modo e toque em **HABILITAR**. No modo OCR o Android pede permissão para gravar a tela: aceite.
-3. Posicione alvos / caixa, toque em ▶. O texto pequeno na barra mostra o status (no OCR: o que foi lido).
+3. Posicione alvos / caixa, toque em ▶. Toque no ✥ (sem arrastar) para encolher a barra (▶ ✕ ✥) e de novo para expandir. O texto pequeno na barra mostra o status (no OCR: o que foi lido).
 
 ## Arquivos
 - `MainActivity.kt`, `PageActivity.kt` – telas do app

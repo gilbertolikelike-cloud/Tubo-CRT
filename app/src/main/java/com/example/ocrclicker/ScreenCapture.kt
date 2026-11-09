@@ -171,7 +171,9 @@ class CaptureService : Service() {
         if (data != null) {
             try {
                 ScreenCapture.start(this, code, data)
-                AutoClickService.instance?.enable(Mode.OCR)
+                val m = intent.getIntExtra("mode", Mode.OCR)
+                val w = intent.getBooleanExtra("withOcr", false)
+                AutoClickService.instance?.enable(m, w)
             } catch (e: Exception) {
                 stopForeground(true)
                 stopSelf()
