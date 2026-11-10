@@ -135,18 +135,18 @@ class Overlay(
         statusTv.text = t
     }
 
-    private val engine = ClickEngine(
+    private val engine: ClickEngine = ClickEngine(
         svc,
         status = { s -> main.post { stPrimary = s; refreshStatus() } },
         onFinished = { main.post { if (!anyRunning()) setRunningUi(false) } }
     )
-    private val ocrEngine = ClickEngine(
+    private val ocrEngine: ClickEngine = ClickEngine(
         svc,
         status = { s -> main.post { stOcr = if (mode == Mode.OCR) s else "OCR: $s"; refreshStatus() } },
         onFinished = { main.post { if (!anyRunning()) setRunningUi(false) } }
     )
 
-    private fun anyRunning() = engine.isRunning() || ocrEngine.isRunning()
+    private fun anyRunning(): Boolean = engine.isRunning() || ocrEngine.isRunning()
 
     // ------------------------------------------------------------------ alvo único / ponto fixo do OCR
     private val showMain = mode == Mode.SINGLE
