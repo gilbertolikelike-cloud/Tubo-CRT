@@ -6,6 +6,8 @@ import android.graphics.Bitmap
 import android.graphics.Path
 import android.graphics.Point
 import android.graphics.Rect
+import android.os.Handler
+import android.os.HandlerThread
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
@@ -13,6 +15,7 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.util.Locale
 import java.util.Random
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.locks.LockSupport
@@ -25,32 +28,60 @@ class OcrParams(val word: String, val ignoreCase: Boolean, val everyMs: Long, va
 /**
  * Motor de cliques (thread própria). Três modos:
  *  - único: clica no alvo a cada N ms (tempo absoluto, sem acumular atraso)
- *  - multi: percorre a lista de alvos (toques e deslizes), cada um com seu atraso
- *  - OCR: lê a caixa, clica se achar o texto, espera o intervalo e lê de novo
+ *  - multi: percorre a lista NA ORDEM (1, 2, 3...), cada alvo com seu atraso
+ *  - OCR: lê a caixa; achou o texto -> PAUSA os outros cliques, clica no texto, e só retoma
+ *         quando o texto some
+ *
+ * Todos os toques passam por UM funil (GLOCK): nunca dois gestos ao mesmo tempo, então a ordem
+ * é sempre respeitada e um clique nunca cancela o outro.
  */
 class ClickEngine(
     private val svc: AccessibilityService,
     private val status: (String) -> Unit,   // chamado da thread de trabalho
     private val onFinished: () -> Unit      // idem
 ) {
+    companion object {
+        const val TAP_MS = 10L
+        private val GLOCK = Any()
+        private val gHandler: Handler by lazy {
+            val t = HandlerThread("gestures")
+            t.start()
+            Handler(t.looper)
+        }
+    }
+
     private val running = AtomicBoolean(false)
     @Volatile private var thread: Thread? = null
+    @Volatile private var paused = false
+    @Volatile private var antiOn = false
     private val rnd = Random()
     private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
 
     private var startNs = 0L
     private var limitNs = 0L
+    private var lastSay = 0L
 
     fun isRunning() = running.get()
 
     fun startSingle(target: Point, intervalMs: Long, stop: Stop, anti: Boolean) =
-        launch(stop, anti) { runSingle(target, intervalMs.coerceAtLeast(20L), stop, anti) }
+        launch(stop, anti, Thread.MAX_PRIORITY) { runSingle(target, intervalMs.coerceAtLeast(20L), stop) }
 
     fun startMulti(targets: List<Target>, stop: Stop, anti: Boolean) =
-        launch(stop, anti) { runMulti(targets, stop, anti) }
+        launch(stop, anti, Thread.MAX_PRIORITY) { runMulti(targets, stop, anti) }
 
-    fun startOcr(fixed: Point, box: Rect, p: OcrParams, stop: Stop, anti: Boolean) =
-        launch(stop, anti) { runOcr(fixed, box, p, stop, anti) }
+    /** [gate]: chamado com true quando o texto foi visto (pausar os outros) e false quando sumiu. */
+    fun startOcr(
+        fixed: Point, box: Rect, p: OcrParams, stop: Stop, anti: Boolean,
+        gate: ((Boolean) -> Unit)? = null
+    ) = launch(stop, anti, Thread.NORM_PRIORITY) { runOcr(fixed, box, p, stop, gate) }
+
+    /** Pausa / retoma este motor (usado pelo OCR para segurar os outros cliques). */
+    fun pause() { paused = true }
+
+    fun resume() {
+        paused = false
+        thread?.let { LockSupport.unpark(it) }
+    }
 
     fun stop() {
         running.set(false)
@@ -62,69 +93,92 @@ class ClickEngine(
         try { recognizer.close() } catch (e: Exception) { }
     }
 
-    private fun launch(stop: Stop, anti: Boolean, body: () -> Unit) {
+    private fun launch(stop: Stop, anti: Boolean, prio: Int, body: () -> Unit) {
         if (!running.compareAndSet(false, true)) return
         antiOn = anti
+        paused = false
         startNs = System.nanoTime()
         limitNs = if (stop.mode == 1) stop.seconds * 1_000_000_000L else 0L
         val t = Thread {
             try {
                 body()
             } catch (e: Exception) {
-                status("erro: ${e.javaClass.simpleName}")
+                say("erro: ${e.javaClass.simpleName}", true)
             } finally {
                 val natural = running.get()      // true = terminou sozinho (condição de parada)
                 running.set(false)
-                if (natural) status("✓ concluído")
+                if (natural) say("✓ concluído", true)
                 onFinished()
             }
         }
-        t.priority = Thread.MAX_PRIORITY
+        t.priority = prio
         thread = t
         t.start()
     }
 
     private fun timeUp() = limitNs > 0 && System.nanoTime() - startNs >= limitNs
 
+    /** Texto de status com limite de ~2 por segundo (cada atualização custa uma passada de layout). */
+    private fun say(s: String, force: Boolean = false) {
+        val now = System.nanoTime()
+        if (force || now - lastSay >= 400_000_000L) {
+            lastSay = now
+            status(s)
+        }
+    }
+
+    /** Fica parado enquanto o OCR segura os cliques. Devolve true se chegou a pausar. */
+    private fun waitWhilePaused(): Boolean {
+        if (!paused) return false
+        val t0 = System.nanoTime()
+        while (paused && running.get() && !timeUp()) LockSupport.parkNanos(40_000_000L)
+        startNs += System.nanoTime() - t0           // o tempo parado não conta em "Parar após: tempo"
+        return true
+    }
+
     // ------------------------------------------------------------------ alvo único
-    private fun runSingle(target: Point, interval: Long, stop: Stop, anti: Boolean) {
-        val fixedGesture = tap(target.x, target.y)           // sem anti-detecção: gesto criado UMA vez
+    private fun runSingle(target: Point, interval: Long, stop: Stop) {
+        val cached = tap(target.x, target.y)                 // sem anti-detecção: gesto criado UMA vez
+        val sync = interval >= 100                           // intervalos curtos: dispara sem esperar
         var next = System.nanoTime()
         var n = 0
         while (running.get() && !timeUp()) {
-            val g = if (anti) tap(jit(target.x), jit(target.y)) else fixedGesture
-            if (!dispatch(g)) { status("serviço parou"); break }
+            if (waitWhilePaused()) next = System.nanoTime()
+            if (!running.get() || timeUp()) break
+            val g = if (antiOn) tap(jit(target.x), jit(target.y)) else cached
+            if (!dispatch(g, sync, TAP_MS)) { say("serviço parou", true); break }
             n++
-            if (interval >= 250 || n % 10 == 0) status("cliques: $n")
+            say("cliques: $n")
             if (stop.mode == 2 && n >= stop.count) break
-            next += jitMs(interval) * 1_000_000L              // tempo ABSOLUTO: não acumula atraso
+            next += jitMs(interval) * 1_000_000L             // tempo ABSOLUTO: não acumula atraso
             if (next < System.nanoTime()) next = System.nanoTime()
             waitUntil(next)
         }
     }
 
     // ------------------------------------------------------------------ multi alvos
+    private fun gestureFor(t: Target): GestureDescription =
+        if (t.type == 1) swipe(jit(t.x), jit(t.y), jit(t.x2), jit(t.y2), t.swipeMs)
+        else tap(jit(t.x), jit(t.y))
+
     private fun runMulti(list: List<Target>, stop: Stop, anti: Boolean) {
         if (list.isEmpty()) {
-            status("sem alvos: toque em +")
+            say("sem alvos: toque em +", true)
             return
         }
+        // sem anti-detecção os gestos são montados UMA vez (nada de alocar a cada toque)
+        val cache: List<GestureDescription>? = if (anti) null else list.map { gestureFor(it) }
         var cycles = 0
         outer@ while (running.get() && !timeUp()) {
-            for ((i, t) in list.withIndex()) {
+            for ((i, t) in list.withIndex()) {               // SEMPRE na ordem: 1, 2, 3...
+                waitWhilePaused()
                 if (!running.get() || timeUp()) break@outer
-                val g: GestureDescription
-                val dur: Long
-                if (t.type == 1) {
-                    g = swipe(jit(t.x), jit(t.y), jit(t.x2), jit(t.y2), t.swipeMs)
-                    dur = t.swipeMs
-                } else {
-                    g = tap(jit(t.x), jit(t.y))
-                    dur = TAP_MS
-                }
-                if (!dispatch(g)) { status("serviço parou"); break@outer }
-                status("ciclo ${cycles + 1} · alvo ${i + 1}/${list.size}")
-                waitUntil(System.nanoTime() + (jitMs(t.delayMs) + dur) * 1_000_000L)
+                val dur = if (t.type == 1) t.swipeMs else TAP_MS
+                val t0 = System.nanoTime()
+                val g = cache?.get(i) ?: gestureFor(t)
+                if (!dispatch(g, true, dur)) { say("serviço parou", true); break@outer }
+                say("ciclo ${cycles + 1} · alvo ${i + 1}/${list.size}")
+                waitUntil(t0 + (jitMs(t.delayMs) + dur) * 1_000_000L)
             }
             cycles++
             if (stop.mode == 2 && cycles >= stop.count) break
@@ -132,44 +186,56 @@ class ClickEngine(
     }
 
     // ------------------------------------------------------------------ OCR
-    private fun runOcr(fixed: Point, box: Rect, p: OcrParams, stop: Stop, anti: Boolean) {
-        val everyNs = p.everyMs.coerceAtLeast(500L) * 1_000_000L
+    private fun runOcr(fixed: Point, box: Rect, p: OcrParams, stop: Stop, gate: ((Boolean) -> Unit)?) {
+        val everyMs = p.everyMs.coerceAtLeast(500L)
+        val recheckNs = minOf(everyMs, 600L) * 1_000_000L    // depois de clicar, confere logo se o texto sumiu
         var clicks = 0
-        while (running.get() && !timeUp()) {
-            status("lendo…")
-            val shot = capture(box)
-            if (!running.get()) {
-                shot?.bmp?.recycle()
-                break
-            }
-            if (shot == null) {
-                status("sem imagem: ligue a captura")
-            } else {
-                val text = read(shot.bmp)
-                shot.bmp.recycle()
-                if (text == null) {
-                    status("falha no OCR")
+        try {
+            while (running.get() && !timeUp()) {
+                say("lendo…")
+                var found = false
+                val shot = capture(box)
+                if (!running.get()) {
+                    shot?.bmp?.recycle()
+                    break
+                }
+                if (shot == null) {
+                    gate?.invoke(false)
+                    say("sem imagem: ligue a captura", true)
                 } else {
-                    val hit = find(text, p.word, p.ignoreCase)
-                    if (hit != null) {
-                        val pt = when (p.where) {
-                            0 -> Point(
-                                shot.ox + (hit.centerX() / shot.scale).toInt(),
-                                shot.oy + (hit.centerY() / shot.scale).toInt()
-                            )
-                            1 -> Point(box.centerX(), box.centerY())
-                            else -> fixed
-                        }
-                        dispatch(tap(jit(pt.x), jit(pt.y)))
-                        clicks++
-                        status("✓ achou! cliques: $clicks")
-                        if (stop.mode == 2 && clicks >= stop.count) break
+                    val text = read(shot.bmp)
+                    shot.bmp.recycle()
+                    if (text == null) {
+                        gate?.invoke(false)
+                        say("falha no OCR", true)
                     } else {
-                        status("✗ li: " + snippet(text.text))
+                        val hit = find(text, p.word, p.ignoreCase)
+                        if (hit != null) {
+                            found = true
+                            gate?.invoke(true)                // viu o texto: segura todos os outros cliques
+                            val pt = when (p.where) {
+                                0 -> Point(
+                                    shot.ox + (hit.centerX() / shot.scale).toInt(),
+                                    shot.oy + (hit.centerY() / shot.scale).toInt()
+                                )
+                                1 -> Point(box.centerX(), box.centerY())
+                                else -> fixed
+                            }
+                            dispatch(tap(jit(pt.x), jit(pt.y)), true, TAP_MS)
+                            clicks++
+                            say("✓ achou! cliques: $clicks", true)
+                            if (stop.mode == 2 && clicks >= stop.count) break
+                        } else {
+                            gate?.invoke(false)               // texto sumiu: os outros voltam a clicar
+                            say("✗ li: " + snippet(text.text), true)
+                        }
                     }
                 }
+                val waitNs = if (found && gate != null) recheckNs else jitMs(everyMs) * 1_000_000L
+                waitUntil(System.nanoTime() + waitNs)
             }
-            waitUntil(System.nanoTime() + jitMs(everyNs / 1_000_000L) * 1_000_000L)
+        } finally {
+            gate?.invoke(false)
         }
     }
 
@@ -225,21 +291,32 @@ class ClickEngine(
         s.replace('\n', ' ').trim().take(22).ifEmpty { "(nada)" }
 
     // ------------------------------------------------------------------ utilidades
-    companion object {
-        const val TAP_MS = 10L
-    }
-
     /** Anti-Detecção: varia ±4 px na posição e ±10% no tempo, para não parecer um robô. */
-    @Volatile private var antiOn = false
-
     private fun jit(v: Int): Int = if (antiOn) v + rnd.nextInt(9) - 4 else v
     private fun jitMs(v: Long): Long = if (antiOn) (v * (0.9 + rnd.nextDouble() * 0.2)).toLong() else v
 
-    private fun dispatch(g: GestureDescription): Boolean = try {
-        svc.dispatchGesture(g, null, null)
-        true
-    } catch (e: Exception) {
-        false
+    /**
+     * Único funil de toques. [wait] = espera o Android terminar o gesto antes de soltar o próximo
+     * (garante a ordem e evita que um toque cancele o outro).
+     */
+    private fun dispatch(g: GestureDescription, wait: Boolean, durMs: Long): Boolean {
+        try {
+            synchronized(GLOCK) {
+                if (!wait) {
+                    svc.dispatchGesture(g, null, null)
+                    return true
+                }
+                val latch = CountDownLatch(1)
+                val ok = svc.dispatchGesture(g, object : AccessibilityService.GestureResultCallback() {
+                    override fun onCompleted(d: GestureDescription?) { latch.countDown() }
+                    override fun onCancelled(d: GestureDescription?) { latch.countDown() }
+                }, gHandler)
+                if (ok) latch.await(durMs + 300L, TimeUnit.MILLISECONDS)
+                return true
+            }
+        } catch (e: Exception) {
+            return false
+        }
     }
 
     private fun tap(x: Int, y: Int): GestureDescription {
@@ -259,9 +336,9 @@ class ClickEngine(
             .build()
     }
 
-    /** Dorme até o instante absoluto (nanoTime), até a condição de tempo ou até stop(). */
+    /** Dorme até o instante absoluto (nanoTime), até a condição de tempo, até pausar ou até stop(). */
     private fun waitUntil(deadlineNs: Long) {
-        while (running.get() && !timeUp()) {
+        while (running.get() && !timeUp() && !paused) {
             val w = deadlineNs - System.nanoTime()
             if (w <= 0) return
             LockSupport.parkNanos(w)

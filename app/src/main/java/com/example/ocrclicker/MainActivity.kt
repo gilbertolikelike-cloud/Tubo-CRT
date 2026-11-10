@@ -93,7 +93,7 @@ class MainActivity : Activity() {
         ocrCard.addView(cb)
         ocrCard.addView(Ui.text(
             this,
-            if (ocrWith) "Ligado: o HABILITAR de cima também mostra a caixa verde do OCR e lê a tela ao mesmo tempo."
+            if (ocrWith) "Ligado: o HABILITAR de cima também mostra a caixa verde. Quando o OCR vê o texto, os outros cliques param até ele clicar nele."
             else "Desligado: os modos acima rodam sem OCR. O botão abaixo liga só o OCR.",
             12f, Ui.TEXT2
         ))

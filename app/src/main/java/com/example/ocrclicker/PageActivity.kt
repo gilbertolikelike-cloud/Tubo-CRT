@@ -116,7 +116,9 @@ class PageActivity : Activity() {
         line(IconView.BOX, "Modo OCR: arraste a caixa verde para cima do texto; a bolinha do canto muda o tamanho; " +
                 "toque na caixa para abrir as configurações do OCR. O texto pequeno na barra mostra o que o OCR leu")
         line(IconView.TARGET, "OCR junto com os outros modos: marque “Usar o OCR junto” na tela inicial. " +
-                "O ▶ liga os cliques e a leitura ao mesmo tempo. Se “Onde clicar” for “No alvo”, aparece um anel verde")
+                "O ▶ liga os cliques e a leitura ao mesmo tempo. Quando o OCR VÊ o texto, todos os outros cliques PARAM, " +
+                "o OCR clica no texto e, quando o texto some, os outros voltam a clicar na ordem. " +
+                "Se “Onde clicar” for “No alvo”, aparece um anel verde")
     }
 
     // ------------------------------------------------------------------ Configurações padrão
@@ -209,6 +211,9 @@ class PageActivity : Activity() {
                     "Alguns apps bloqueiam captura de tela (bancos, certos jogos). Nesses o OCR não funciona.",
             "A captura parou" to
                     "O Android encerra a gravação se você tocar em “Parar” na notificação ou na barra de status. Desabilite e habilite o modo OCR de novo.",
+            "Os cliques saem fora de ordem" to
+                    "Confira se o texto que o OCR procura não aparece também onde você está digitando/clicando (ex.: um campo de busca): " +
+                    "o OCR clicaria nele. Deixe a caixa verde só em cima do lugar onde o botão (ex.: YES) aparece.",
             "O celular trava" to
                     "Use intervalos acima de 40 ms. Intervalos muito curtos sobrecarregam o aparelho.",
             "Girei a tela e a barra ficou fora do lugar" to

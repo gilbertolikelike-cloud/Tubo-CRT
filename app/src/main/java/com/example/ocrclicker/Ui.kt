@@ -109,7 +109,7 @@ class IconView(ctx: Context, t: Int, private val tint: Int? = null) : View(ctx) 
                 tri(c, 13f, 3f, 22f, 9f, 13f, 15f)
             }
             GEAR -> {
-                val col = tint ?: 0xFF78909C.toInt()
+                val col = tint ?: 0xFF607D8B.toInt()
                 fill.color = col
                 for (k in 0 until 8) {
                     c.save()

@@ -21,13 +21,18 @@ import android.os.HandlerThread
 import android.os.IBinder
 import android.util.DisplayMetrics
 import android.view.WindowManager
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /** Pedaço da tela já recortado + posição dele na tela. */
 class Frame(val bmp: Bitmap, val ox: Int, val oy: Int)
 
 /**
  * Captura de tela via MediaProjection (funciona no Android 10).
- * Guarda sempre o ÚLTIMO quadro; o OCR só recorta a caixa dele.
+ *
+ * OTIMIZAÇÃO: a captura fica DESLIGADA (surface nula = o Android nem desenha para ela) e só liga
+ * no instante de cada leitura do OCR: liga, espera 1 quadro novo, desliga. Entre as leituras o
+ * custo de GPU/bateria é zero. Só os pixels da caixa são copiados (não a tela inteira).
  */
 object ScreenCapture {
     private val lock = Any()
@@ -36,8 +41,10 @@ object ScreenCapture {
     private var display: VirtualDisplay? = null
     private var latest: Image? = null
     private var thread: HandlerThread? = null
-
     private var handler: Handler? = null
+
+    @Volatile
+    private var waiter: CountDownLatch? = null
 
     @Volatile
     var active = false
@@ -50,6 +57,7 @@ object ScreenCapture {
                 latest?.close()
                 latest = img
             }
+            waiter?.countDown()
         }
     }
 
@@ -68,12 +76,13 @@ object ScreenCapture {
             override fun onStop() { stop() }
         }, h)
 
-        val r = ImageReader.newInstance(m.widthPixels, m.heightPixels, PixelFormat.RGBA_8888, 3)
+        val r = ImageReader.newInstance(m.widthPixels, m.heightPixels, PixelFormat.RGBA_8888, 2)
         r.setOnImageAvailableListener(onImage, h)
         val d = p.createVirtualDisplay(
             "ocr-capture", m.widthPixels, m.heightPixels, m.densityDpi,
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, r.surface, null, null
         )
+        try { d.surface = null } catch (e: Exception) { }     // começa DESLIGADA
         synchronized(lock) {
             projection = p; reader = r; display = d; thread = t; handler = h
             active = true
@@ -90,12 +99,11 @@ object ScreenCapture {
             @Suppress("DEPRECATION")
             wm.defaultDisplay.getRealMetrics(m)
             val old = reader
-            val r = ImageReader.newInstance(m.widthPixels, m.heightPixels, PixelFormat.RGBA_8888, 3)
+            val r = ImageReader.newInstance(m.widthPixels, m.heightPixels, PixelFormat.RGBA_8888, 2)
             r.setOnImageAvailableListener(onImage, h)
             latest?.close(); latest = null
             d.resize(m.widthPixels, m.heightPixels, m.densityDpi)
-            d.surface = r.surface
-            reader = r
+            reader = r                                          // continua desligada até a próxima leitura
             old?.close()
         }
     }
@@ -110,27 +118,59 @@ object ScreenCapture {
             reader?.close(); reader = null
             p = projection; projection = null
             t = thread; thread = null
+            handler = null
         }
+        waiter?.countDown()
         try { p?.stop() } catch (e: Exception) { }
         t?.quitSafely()
     }
 
-    /** Recorta [box] (coordenadas de tela) do último quadro. Null se ainda não chegou nenhum. */
+    /**
+     * Liga a captura, espera um quadro NOVO (até 700 ms), desliga, e devolve só o recorte [box]
+     * (coordenadas de tela). Null se não houver captura.
+     */
     fun grab(box: Rect): Frame? {
+        var d: VirtualDisplay? = null
+        var r: ImageReader? = null
+        synchronized(lock) { d = display; r = reader }
+        val dd = d ?: return null
+        val rr = r ?: return null
+
+        val latch = CountDownLatch(1)
+        waiter = latch
+        try {
+            dd.surface = rr.surface                            // liga
+            latch.await(700, TimeUnit.MILLISECONDS)            // espera 1 quadro novo
+        } catch (e: Exception) {
+        } finally {
+            waiter = null
+            try { dd.surface = null } catch (e: Exception) { }  // desliga de novo
+        }
+
         synchronized(lock) {
             val img = latest ?: return null
+            val w0 = img.width
+            val h0 = img.height
             val plane = img.planes[0]
-            val rw = plane.rowStride / plane.pixelStride
-            val full = Bitmap.createBitmap(rw, img.height, Bitmap.Config.ARGB_8888)
-            plane.buffer.rewind()
-            full.copyPixelsFromBuffer(plane.buffer)
+            val rs = plane.rowStride
+            val rw = rs / plane.pixelStride
 
-            val l = box.left.coerceIn(0, img.width - 1)
-            val t = box.top.coerceIn(0, img.height - 1)
-            val w = box.right.coerceIn(l + 1, img.width) - l
-            val h = box.bottom.coerceIn(t + 1, img.height) - t
-            val crop = Bitmap.createBitmap(full, l, t, w, h)
-            if (crop !== full) full.recycle()
+            val l = box.left.coerceIn(0, w0 - 1)
+            val t = box.top.coerceIn(0, h0 - 1)
+            val w = box.right.coerceIn(l + 1, w0) - l
+            var rows = box.bottom.coerceIn(t + 1, h0) - t
+
+            val buf = plane.buffer
+            val start = t * rs
+            // a última linha do buffer pode vir sem o padding: se faltar byte, descarta 1 linha
+            if (buf.capacity() - start < rs * rows) rows -= 1
+            if (rows <= 0) return null
+
+            buf.position(start)
+            val tmp = Bitmap.createBitmap(rw, rows, Bitmap.Config.ARGB_8888)
+            tmp.copyPixelsFromBuffer(buf)                      // copia SÓ as linhas da caixa
+            val crop = Bitmap.createBitmap(tmp, l, 0, w, rows)
+            if (crop !== tmp) tmp.recycle()
             return Frame(crop, l, t)
         }
     }

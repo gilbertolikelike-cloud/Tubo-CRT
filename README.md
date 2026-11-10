@@ -7,7 +7,7 @@ Auto clicker no estilo do app original, com três modos:
   configurações salvas ("Config 1", "Config 2"...), Gerenciador de configurações.
 - **OCR (novo)** – uma caixa verde lê o texto da tela (ex.: `YES`); se achar, clica; se não, espera o
   tempo escolhido no app e lê de novo. Pode ligar **sozinho** ("HABILITAR SÓ O OCR") ou **junto** com o
-  alvo único / multi alvos (marque "Usar o OCR junto com os modos acima"): o ▶ roda os dois ao mesmo tempo.
+  alvo único / multi alvos (marque "Usar o OCR junto com os modos acima"): o ▶ roda os dois ao mesmo tempo. Quando o OCR vê o texto, os outros cliques PARAM até ele clicar nele; depois todos voltam, na ordem.
 
 Telas do app: principal (3 blocos + Outros), Configurações de cada modo, Instruções,
 Configurações padrão (tamanho do alvo e da barra) e Solução de problemas.
@@ -33,3 +33,10 @@ GitHub Actions (aba **Actions > Build APK**) ou Android Studio (*Build APK*).
 - Android 10+.
 - Apps que bloqueiam captura de tela (FLAG_SECURE) aparecem pretos no OCR.
 - Tempo mínimo de leitura do OCR: 0,5 s.
+
+## Otimização
+- A captura de tela fica desligada e só liga no instante de cada leitura (custo de GPU/bateria zero entre leituras).
+- Só os pixels da caixa são copiados e lidos.
+- Todos os toques passam por um único funil: nunca dois gestos ao mesmo tempo, a ordem 1, 2, 3... é sempre respeitada.
+- Adicionar/remover bolinha mexe só naquela bolinha; arrastar usa no máximo ~70 atualizações por segundo.
+- A barra, as bolinhas e a caixa nunca saem da tela.

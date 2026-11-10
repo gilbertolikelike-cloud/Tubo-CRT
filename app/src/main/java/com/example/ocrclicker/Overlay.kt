@@ -13,6 +13,7 @@ import android.graphics.Path
 import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.text.InputType
 import android.view.Gravity
 import android.view.MotionEvent
@@ -171,7 +172,12 @@ class Overlay(
     private var cIndex = store.activeConfig.coerceIn(0, maxOf(0, configs.size - 1))
     private val config: Config? get() = configs.getOrNull(cIndex)
     private var page = 0
-    private val pageMarkers = ArrayList<Pair<View, WindowManager.LayoutParams>>()
+    /** Janelas de um alvo da página atual: início e (se for deslize) fim. */
+    private class MSet(
+        val a: View, val ap: WindowManager.LayoutParams,
+        val b: View?, val bp: WindowManager.LayoutParams?
+    )
+    private val pageSets = ArrayList<MSet>()
 
     private val lines = LinesView(svc) {
         val c = config
@@ -238,7 +244,11 @@ class Overlay(
         collapsed = !collapsed
         store.barCollapsed = collapsed
         buildBar()
-        try { wm.updateViewLayout(bar, barLp) } catch (e: Exception) { }
+        bar.post {
+            clampBar()
+            upd(bar, barLp, true)
+            store.barX = barLp.x; store.barY = barLp.y
+        }
     }
 
     init {
@@ -286,6 +296,7 @@ class Overlay(
             barLp.x = barLp.x.coerceIn(0, maxOf(0, sw() - btn))
             barLp.y = barLp.y.coerceIn(0, maxOf(0, sh() - btn * 3))
             wm.addView(bar, barLp)
+            bar.post { clampBar(); upd(bar, barLp, true) }
         } catch (e: Exception) {
             Toast.makeText(svc, "Não consegui mostrar a barra: ${e.message}", Toast.LENGTH_LONG).show()
         }
@@ -298,15 +309,29 @@ class Overlay(
         all.add(bar); all.add(boxView); all.add(lines); all.add(pager)
         mainView?.let { all.add(it) }
         ocrTargetView?.let { all.add(it) }
-        for ((v, _) in pageMarkers) all.add(v)
+        for (m in pageSets) {
+            all.add(m.a)
+            m.b?.let { all.add(it) }
+        }
         for (v in all) {
             try { wm.removeView(v) } catch (e: Exception) { }
         }
-        pageMarkers.clear()
+        pageSets.clear()
     }
 
     // ------------------------------------------------------------------ marcador arrastável
-    /** Cria um alvo (anel azul). Arrastar move; só tocar chama [onTap]. */
+    private var lastUpd = 0L
+
+    /** updateViewLayout é uma chamada ao sistema: durante o arrastar, no máximo ~70 por segundo. */
+    private fun upd(v: View, p: WindowManager.LayoutParams, force: Boolean = false) {
+        val now = SystemClock.uptimeMillis()
+        if (force || now - lastUpd >= 14) {
+            lastUpd = now
+            try { wm.updateViewLayout(v, p) } catch (e: Exception) { }
+        }
+    }
+
+    /** Cria um alvo (anel azul). Arrastar move (sem sair da tela); só tocar chama [onTap]. */
     private fun marker(
         number: Int, size: Int, cx: Int, cy: Int, end: Boolean, touchable: Boolean,
         onMove: (Int, Int) -> Unit, onDrop: () -> Unit, onTap: () -> Unit,
@@ -334,14 +359,24 @@ class Overlay(
                     val dy = (ev.rawY - sy).toInt()
                     if (!moved && (abs(dx) > slop || abs(dy) > slop)) moved = true
                     if (moved) {
-                        p.x = ox + dx
-                        p.y = oy + dy
-                        try { wm.updateViewLayout(v, p) } catch (e: Exception) { }
+                        p.x = (ox + dx).coerceIn(0, maxOf(0, sw() - size))
+                        p.y = (oy + dy).coerceIn(0, maxOf(0, sh() - size))
+                        upd(v, p)
                         onMove(p.x + size / 2, p.y + size / 2)
                     }
                 }
-                MotionEvent.ACTION_UP -> if (moved) onDrop() else onTap()
-                MotionEvent.ACTION_CANCEL -> if (moved) onDrop()
+                MotionEvent.ACTION_UP -> {
+                    if (moved) {
+                        upd(v, p, true)
+                        onDrop()
+                    } else {
+                        onTap()
+                    }
+                }
+                MotionEvent.ACTION_CANCEL -> if (moved) {
+                    upd(v, p, true)
+                    onDrop()
+                }
             }
             true
         }
@@ -364,6 +399,14 @@ class Overlay(
         store.boxX = boxLp.x; store.boxY = boxLp.y; store.boxW = boxLp.width; store.boxH = boxLp.height
     }
 
+    /** Mantém a barra SEMPRE inteira dentro da tela (assim o ✥ nunca fica fora de alcance). */
+    private fun clampBar() {
+        val w = if (bar.width > 0) bar.width else btn + dp(8)
+        val h = if (bar.height > 0) bar.height else btn * 3
+        barLp.x = barLp.x.coerceIn(0, maxOf(0, sw() - w))
+        barLp.y = barLp.y.coerceIn(0, maxOf(0, sh() - h))
+    }
+
     private fun dragBar() {
         var sx = 0f
         var sy = 0f
@@ -380,11 +423,14 @@ class Overlay(
                     if (moved) {
                         barLp.x = ox + dx
                         barLp.y = oy + dy
-                        try { wm.updateViewLayout(bar, barLp) } catch (e: Exception) { }
+                        clampBar()
+                        upd(bar, barLp)
                     }
                 }
                 MotionEvent.ACTION_UP -> {
                     if (moved) {
+                        clampBar()
+                        upd(bar, barLp, true)
                         store.barX = barLp.x; store.barY = barLp.y
                     } else {
                         toggleCollapse()          // só tocou no ✥: encolhe / expande a barra
@@ -402,40 +448,52 @@ class Overlay(
         store.activeConfig = cIndex
     }
 
-    private fun renderPage() {
-        for ((v, _) in pageMarkers) {
-            try { wm.removeView(v) } catch (e: Exception) { }
+    private fun removeSet(m: MSet) {
+        try { wm.removeView(m.a) } catch (e: Exception) { }
+        m.b?.let {
+            try { wm.removeView(it) } catch (e: Exception) { }
         }
-        pageMarkers.clear()
+    }
+
+    /** Cria as janelas do alvo [i] (só dele) e guarda em pageSets. */
+    private fun addTargetWindows(i: Int) {
         val cfg = config ?: return
-        val from = page * PAGE
-        val to = minOf(cfg.targets.size, from + PAGE)
+        val t = cfg.targets[i]
         val touch = !anyRunning()
-        for (i in from until to) {
-            val t = cfg.targets[i]
-            val m = marker(
-                i + 1, tSize, t.x, t.y, false, touch,
-                onMove = { cx, cy -> t.x = cx; t.y = cy; lines.invalidate() },
+        val m = marker(
+            i + 1, tSize, t.x, t.y, false, touch,
+            onMove = { cx, cy -> t.x = cx; t.y = cy; lines.invalidate() },
+            onDrop = { saveConfigs() },
+            onTap = { targetDialog(i) }
+        )
+        try { wm.addView(m.first, m.second) } catch (e: Exception) { }
+        var bv: View? = null
+        var bp: WindowManager.LayoutParams? = null
+        if (t.type == 1) {
+            val es = (tSize * 0.7f).toInt()
+            val en = marker(
+                i + 1, es, t.x2, t.y2, true, touch,
+                onMove = { cx, cy -> t.x2 = cx; t.y2 = cy; lines.invalidate() },
                 onDrop = { saveConfigs() },
                 onTap = { targetDialog(i) }
             )
-            try { wm.addView(m.first, m.second) } catch (e: Exception) { }
-            pageMarkers.add(Pair(m.first, m.second))
-            if (t.type == 1) {
-                val es = (tSize * 0.7f).toInt()
-                val e = marker(
-                    i + 1, es, t.x2, t.y2, true, touch,
-                    onMove = { cx, cy -> t.x2 = cx; t.y2 = cy; lines.invalidate() },
-                    onDrop = { saveConfigs() },
-                    onTap = { targetDialog(i) }
-                )
-                try { wm.addView(e.first, e.second) } catch (ex: Exception) { }
-                pageMarkers.add(Pair(e.first, e.second))
-            }
+            try { wm.addView(en.first, en.second) } catch (e: Exception) { }
+            bv = en.first
+            bp = en.second
         }
+        pageSets.add(MSet(m.first, m.second, bv, bp))
+    }
+
+    /** Refaz TODAS as janelas da página. Só para trocar de página / carregar configuração. */
+    private fun renderPage() {
+        for (m in pageSets) removeSet(m)
+        pageSets.clear()
+        val cfg = config ?: return
+        val from = page * PAGE
+        val to = minOf(cfg.targets.size, from + PAGE)
+        for (i in from until to) addTargetWindows(i)
         lines.invalidate()
         updatePager()
-        main.post { bringBarToFront() }
     }
 
     private fun totalPages(): Int {
@@ -489,17 +547,38 @@ class Overlay(
         }
         cfg.targets.add(t)
         saveConfigs()
-        page = k / PAGE
-        renderPage()
+        if (k / PAGE != page) {
+            page = k / PAGE
+            renderPage()                       // mudou de página: refaz só desta vez
+        } else {
+            addTargetWindows(k)                // normal: cria SÓ a bolinha nova (nada de refazer tudo)
+            lines.invalidate()
+            updatePager()
+        }
+        // a barra só volta para cima se a bolinha nova caiu em cima dela
+        val m = pageSets.lastOrNull() ?: return
+        val barR = Rect(barLp.x, barLp.y, barLp.x + bar.width, barLp.y + bar.height)
+        val tR = Rect(m.ap.x, m.ap.y, m.ap.x + tSize, m.ap.y + tSize)
+        if (Rect.intersects(barR, tR)) main.post { bringBarToFront() }
     }
 
     private fun removeLast() {
         if (anyRunning()) return
         val cfg = config ?: return
         if (cfg.targets.isEmpty()) return
-        cfg.targets.removeAt(cfg.targets.size - 1)
+        val idx = cfg.targets.size - 1
+        val oldPage = page
+        cfg.targets.removeAt(idx)
         saveConfigs()
-        renderPage()
+        val newPage = if (cfg.targets.isEmpty()) 0 else (cfg.targets.size - 1) / PAGE
+        if (idx / PAGE == oldPage && newPage == oldPage && pageSets.isNotEmpty()) {
+            removeSet(pageSets.removeAt(pageSets.size - 1))      // tira SÓ a última bolinha
+            lines.invalidate()
+            updatePager()
+        } else {
+            page = newPage
+            renderPage()
+        }
     }
 
     private fun loadConfigAt(i: Int) {
@@ -563,10 +642,13 @@ class Overlay(
         val tp = ocrTargetLp
         val fixed = if (tp != null) Point(tp.x + tSize / 2, tp.y + tSize / 2)
         else Point(region.centerX(), region.centerY())
+        // OCR junto com único/multi: viu o texto -> pausa os outros cliques; texto sumiu -> eles voltam
+        var gate: ((Boolean) -> Unit)? = null
+        if (mode != Mode.OCR) gate = { on -> if (on) engine.pause() else engine.resume() }
         ocrEngine.startOcr(
             fixed, region,
             OcrParams(store.word, store.ignoreCase, store.ocrIntervalMs, store.where),
-            Stop(store.oStopMode, store.oStopSeconds.toLong(), store.oStopCount), store.oAnti
+            Stop(store.oStopMode, store.oStopSeconds.toLong(), store.oStopCount), store.oAnti, gate
         )
     }
 
@@ -576,7 +658,12 @@ class Overlay(
         setTouchable(boxView, boxLp, touch)
         mainView?.let { v -> mainLp?.let { setTouchable(v, it, touch) } }
         ocrTargetView?.let { v -> ocrTargetLp?.let { setTouchable(v, it, touch) } }
-        for ((v, p) in pageMarkers) setTouchable(v, p, touch)
+        for (m in pageSets) {
+            setTouchable(m.a, m.ap, touch)
+            val bv = m.b
+            val bp = m.bp
+            if (bv != null && bp != null) setTouchable(bv, bp, touch)
+        }
         barLp.flags = if (on) {
             barLp.flags or WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
         } else {
@@ -797,6 +884,15 @@ class BoxView(
 
     private val touchSlop = ViewConfiguration.get(ctx).scaledTouchSlop
     private var moved = false
+    private var lastUpd = 0L
+
+    private fun push(force: Boolean) {
+        val now = SystemClock.uptimeMillis()
+        if (force || now - lastUpd >= 14) {
+            lastUpd = now
+            try { wm.updateViewLayout(this, lp) } catch (ex: Exception) { }
+        }
+    }
 
     private val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE; strokeWidth = pad / 5f; color = 0xFF00E676.toInt()
@@ -828,17 +924,18 @@ class BoxView(
                 val dy = (e.rawY - sy).toInt()
                 if (!moved && (abs(dx) > touchSlop || abs(dy) > touchSlop)) moved = true
                 if (moved) {
+                    val dm = context.resources.displayMetrics
                     if (mode == 0) {
-                        lp.x = ox + dx
-                        lp.y = oy + dy
+                        lp.x = (ox + dx).coerceIn(0, maxOf(0, dm.widthPixels - lp.width))
+                        lp.y = (oy + dy).coerceIn(0, maxOf(0, dm.heightPixels - lp.height))
                     } else {
-                        lp.width = maxOf(minSize, ow + dx)
-                        lp.height = maxOf(minSize, oh + dy)
+                        lp.width = (ow + dx).coerceIn(minSize, maxOf(minSize, dm.widthPixels - lp.x))
+                        lp.height = (oh + dy).coerceIn(minSize, maxOf(minSize, dm.heightPixels - lp.y))
                     }
-                    try { wm.updateViewLayout(this, lp) } catch (ex: Exception) { }
+                    push(false)
                 }
             }
-            MotionEvent.ACTION_UP -> if (moved) onDone() else if (mode == 0) onTap()
+            MotionEvent.ACTION_UP -> if (moved) { push(true); onDone() } else if (mode == 0) onTap()
             MotionEvent.ACTION_CANCEL -> if (moved) onDone()
         }
         return true
