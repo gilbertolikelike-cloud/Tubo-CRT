@@ -153,6 +153,13 @@ public class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
+        if (getIntent().getBooleanExtra("ask_audio", false)) { // o painel pediu (toque no analisador)
+            getIntent().removeExtra("ask_audio");
+            askAudio();
+        } else if (!sp.getBoolean("audio_asked", false)) {        // na primeira vez, já pergunta
+            sp.edit().putBoolean("audio_asked", true).apply();
+            askAudio();
+        }
         refresh();
         if (introDone) startBackground();
         startMusic(); // só depois da abertura
@@ -278,6 +285,7 @@ public class MainActivity extends Activity {
         addRow(slider("Transparência do Bob (100 = sólido)", "bob_alpha", 10, 100, 100, "%"));
         addRow(slider("Fluidez do Bob (0 = leve, 100 = suave)", "bob_fluid", 0, 100, 60, ""));
         addRow(slider("Chiado de TV na música (0 = desligado)", "tv_noise", 0, 100, 0, "%"));
+        addRow(slider("Tamanho do painel (%)", "panel_scale", 50, 100, 72, "%"));
         applyRowSizes();
         refresh();
         final int y = keep;
@@ -439,6 +447,8 @@ public class MainActivity extends Activity {
                 requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
             else MusicPlayer.get(this).refreshVisualizer();
         }));
+        box.addView(switchRow("Sons do painel (TV de tubo)", sp.getBoolean("ui_sounds", true), (b, on) -> sp.edit().putBoolean("ui_sounds", on).apply()));
+        box.addView(switchRow("Espada solta depois de 2 min parado", sp.getBoolean("familiar_on", true), (b, on) -> sp.edit().putBoolean("familiar_on", on).apply()));
         box.addView(switchRow("Brilho nunca automático", sp.getBoolean("no_auto_bright", true), (b, on) -> {
             sp.edit().putBoolean("no_auto_bright", on).apply();
             Brightness.forceManual(this, sp);
@@ -462,6 +472,12 @@ public class MainActivity extends Activity {
                 .setPositiveButton("Fechar", null)
                 .setOnDismissListener(dlg -> refresh())
                 .show();
+    }
+
+    /** Pede a permissão de áudio do analisador de espectro (ela só serve pra ler o espectro da música). */
+    private void askAudio() {
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
     }
 
     private void applyTvNoise() {

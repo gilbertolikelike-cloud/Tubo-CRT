@@ -5,8 +5,9 @@
   "rows": 10,
   "frames": 120,
   "ms": 61.0,
-  "aspect": 1.1069,
-  "scale": 1.0
+  "aspect": 1.0864,
+  "scale": 1.0,
+  "blend": true
  },
  "saiyan": {
   "file": "bob_saiyan.png",
@@ -60,7 +61,8 @@
   "frames": 80,
   "ms": 62.2,
   "aspect": 1.194,
-  "scale": 1.25
+  "scale": 1.25,
+  "blend": true
  },
  "papyrus": {
   "file": "bob_papyrus.png",
@@ -68,8 +70,9 @@
   "rows": 8,
   "frames": 79,
   "ms": 50.0,
-  "aspect": 0.8571,
-  "scale": 1.25
+  "aspect": 0.8664,
+  "scale": 1.25,
+  "blend": false
  },
  "duck": {
   "file": "bob_duck.png",
@@ -77,7 +80,28 @@
   "rows": 8,
   "frames": 72,
   "ms": 66.5,
-  "aspect": 0.9901,
-  "scale": 1.15
+  "aspect": 0.8658,
+  "scale": 1.15,
+  "blend": false
+ },
+ "duck_target": {
+  "file": "duck_target.png",
+  "cols": 5,
+  "rows": 3,
+  "frames": 15,
+  "ms": 40.0,
+  "aspect": 0.6689,
+  "scale": 1.0,
+  "blend": false
+ },
+ "familiar": {
+  "file": "familiar_sword.png",
+  "cols": 8,
+  "rows": 1,
+  "frames": 8,
+  "ms": 110.0,
+  "aspect": 0.5273,
+  "scale": 1.0,
+  "blend": false
  }
 }

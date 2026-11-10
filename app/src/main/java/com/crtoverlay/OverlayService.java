@@ -9,6 +9,7 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.database.ContentObserver;
 import android.os.Handler;
+import android.os.SystemClock;
 import android.os.Looper;
 import android.provider.Settings;
 import android.content.Intent;
@@ -45,6 +46,7 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
     private boolean coolApplied, receiverRegistered;
     private final BroadcastReceiver screenReceiver = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
+            screenEvent(Intent.ACTION_SCREEN_OFF.equals(intent.getAction()));
             boolean off = Intent.ACTION_SCREEN_OFF.equals(intent.getAction());
             if (view != null) view.setPaused(off);
             if (panel != null) panel.setPaused(off);
@@ -138,6 +140,7 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
     }
 
     @Override public void onConfigurationChanged(Configuration newConfig) {
+        if (familiar != null) familiar.stop();
         super.onConfigurationChanged(newConfig);
         if (view != null && viaAccessibility) {
             fitRealSize();
@@ -158,7 +161,7 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
         if (view == null || key == null) return;
         switch (key) {
             case "panel_on": if (sp.getBoolean("panel_on", true)) startPanel(); else stopPanel(); break;
-            case "bob_size": case "bob_alpha": if (panel != null) panel.refreshLook(); break;
+            case "bob_size": case "bob_alpha": case "panel_scale": if (panel != null) panel.refreshLook(); break;
             case "perf_on": applyPerformance(true); break;
             case "cool_on": applyCool(true); applyPrefs(); break;
             case "cool_prev_bri": break;
@@ -241,14 +244,53 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
     }
 
     // ---------- painel do Bob ----------
+    // ---------- espada solta: entra em cena depois de 2 minutos sem ninguém tocar na tela ----------
+    private static final long IDLE_MS = 120_000;
+    private Familiar familiar;
+    private long lastActivity;
+    private boolean screenOff;
+    private final android.os.Handler idleHandler = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable idleCheck = new Runnable() {
+        @Override public void run() {
+            checkIdle();
+            idleHandler.postDelayed(this, 4000);
+        }
+    };
+
+    /** Alguém tocou na tela (o painel avisa): a espada solta some na hora. */
+    private void onUserActivity() {
+        lastActivity = SystemClock.uptimeMillis();
+        if (familiar != null && familiar.isActive()) familiar.stop();
+    }
+
+    private void screenEvent(boolean off) {
+        screenOff = off;
+        if (off) { if (familiar != null) familiar.stop(); }
+        else lastActivity = SystemClock.uptimeMillis();
+    }
+
+    private void checkIdle() {
+        if (familiar == null) return;
+        boolean allowed = sp.getBoolean("familiar_on", true) && !sp.getBoolean("cool_on", false) && !screenOff && panel != null;
+        if (!allowed) { if (familiar.isActive()) familiar.stop(); return; }
+        if (!familiar.isActive() && SystemClock.uptimeMillis() - lastActivity >= IDLE_MS) familiar.start();
+    }
+
     private void startPanel() {
         if (panel != null || !sp.getBoolean("panel_on", true)) return;
         panel = new BobPanel(this, wm, viaAccessibility, sp);
         panel.show();
+        panel.setActivityListener(this::onUserActivity);
+        if (familiar == null) familiar = new Familiar(this, wm, viaAccessibility);
+        lastActivity = SystemClock.uptimeMillis();
+        idleHandler.removeCallbacks(idleCheck);
+        idleHandler.postDelayed(idleCheck, 4000);
     }
 
     private void stopPanel() {
         if (panel != null) {
+            idleHandler.removeCallbacks(idleCheck);
+            if (familiar != null) familiar.stop();
             panel.hide();
             panel = null;
         }

@@ -18,6 +18,8 @@ Feito com base nos filtros CRT LIGHT e STRONG do port do jogo *Black* para Andro
 - **Espada com rastro:** de noite, arraste a espada e ela deixa um rastro azul com raios.
 - **Analisador de espectro:** 31 barras de LED mexendo com a música, no painel. Pede a permissão de áudio, que só serve pra ler o espectro da música; o app não grava nada.
 - **Chiado de TV:** o slider "Chiado de TV na música" deixa a música com som de caixinha de TV (sem graves nem agudos, com estática). Só vale pra música do app, nunca pro som dos jogos.
+- **Espada solta:** com 2 minutos sem tocar na tela, a espada do Castlevania (Sword Familiar) sai voando sozinha. Um pato aparece, ela corre atrás e ataca com um arco de raios, e um balão de conversa mostra um versículo sorteado. Tocar na tela acaba com tudo.
+- **Painel:** moldura de madeira, botões em colunas, tamanho ajustável em ▦ e sons de TV de tubo nos botões de girar e nos botões.
 - **Céu animado** no topo do painel: pôr do sol de dia e estrelas de noite, com sol e lua andando pela hora.
 - **Modo gelado** (botão **GELO**, ou ▦): um app não esfria o aparelho de verdade, mas esse modo reduz o que esquenta. Para as animações do filtro e do Bob, baixa o brilho (e devolve ao desligar) e limpa a RAM. O céu do painel mostra a temperatura da bateria. Com a tela apagada, o app pausa tudo sozinho.
 - O botão **PARAR** (e ▦ → "Parar todos os apps") fecha os outros apps: o Android não deixa um app fazer isso direto, então ele abre a tela de cada app em Configurações e toca em "Forçar parada", usando a Acessibilidade. Leva uns 2 segundos por app e deixa de fora este app, a sua lista de jogos, a tela inicial e o teclado.
