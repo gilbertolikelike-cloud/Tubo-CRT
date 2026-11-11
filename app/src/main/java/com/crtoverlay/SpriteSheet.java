@@ -14,11 +14,15 @@ final class SpriteSheet {
     final Bitmap bitmap;
     final int cols, frames, frameW, frameH;
     final float ms, aspect, scale;
-    final boolean blend;
+    final boolean blend, tipDown;
+    /** Ponto de rotação (fração da célula) e altura do corpo da espada (fração da célula), quando o gif tem efeito em volta. */
+    final float ax, ay, sh;
 
-    private SpriteSheet(Bitmap bitmap, int cols, int frames, int frameW, int frameH, float ms, float aspect, float scale, boolean blend) {
+    private SpriteSheet(Bitmap bitmap, int cols, int frames, int frameW, int frameH, float ms, float aspect, float scale, boolean blend,
+                        float ax, float ay, float sh, boolean tipDown) {
         this.bitmap = bitmap; this.cols = cols; this.frames = frames; this.frameW = frameW; this.frameH = frameH;
         this.ms = ms; this.aspect = aspect; this.scale = scale; this.blend = blend;
+        this.ax = ax; this.ay = ay; this.sh = sh; this.tipDown = tipDown;
     }
 
     /** sample = 2 usa metade da resolução (gasta 4x menos memória). Devolve null se faltar o arquivo. */
@@ -38,7 +42,9 @@ final class SpriteSheet {
             int cols = o.getInt("cols"), rows = o.getInt("rows");
             return new SpriteSheet(b, cols, o.getInt("frames"), b.getWidth() / cols, b.getHeight() / rows,
                     (float) o.getDouble("ms"), (float) o.getDouble("aspect"),
-                    (float) o.optDouble("scale", 1.0), o.optBoolean("blend", true));
+                    (float) o.optDouble("scale", 1.0), o.optBoolean("blend", true),
+                    (float) o.optDouble("ax", 0.5), (float) o.optDouble("ay", 0.5), (float) o.optDouble("sh", 1.0),
+                    "down".equals(o.optString("tip", "up")));
         } catch (IOException | JSONException | RuntimeException e) {
             return null;
         }

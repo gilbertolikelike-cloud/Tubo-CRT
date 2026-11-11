@@ -69,8 +69,8 @@ public class BobPanel extends View {
     private static final String[] BUTTON_LABEL = {"FOTO", "APAGAR", "RAM", "MAX", "PARAR", "GELO"};
     private static final int[] BUTTON_RING = {0xFF2EAD5B, 0xFFD94040, 0xFF4F6BFF, 0xFFFFC107, 0xFFFF7043, 0xFF4FC3F7};
     private static final int M_SPECTRUM = 13;
-    /** Posição dos 6 botões (dp): coluna da direita = FOTO, APAGAR, RAM; coluna do meio = MAX, PARAR, GELO. */
-    private static final float[] BTN_X = {208, 208, 208, 166, 166, 166}, BTN_Y = {80, 128, 176, 80, 128, 176};
+    /** Posição dos 6 botões (dp), na ordem FOTO, APAGAR, RAM, MAX, PARAR, GELO. Coluna da direita (de cima pra baixo): APAGAR, FOTO, MAX. Coluna do meio: PARAR, GELO, RAM. */
+    private static final float[] BTN_X = {208, 208, 166, 208, 166, 166}, BTN_Y = {128, 80, 176, 176, 80, 128};
     private static final float RAINBOW_LEN = 120f;
     private static final long AUTO_CLOSE_MS = 10000;
     private static final float PANEL_W_DP = 232f, PANEL_H_DP = 344f, BORDER_DP = 6f;

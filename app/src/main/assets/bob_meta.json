@@ -103,5 +103,15 @@
   "aspect": 0.5273,
   "scale": 1.0,
   "blend": false
+ },
+ "alucard": {
+  "file": "alucard_idle.png",
+  "cols": 10,
+  "rows": 2,
+  "frames": 14,
+  "ms": 120.0,
+  "aspect": 0.5102,
+  "scale": 1.0,
+  "blend": false
  }
 }
