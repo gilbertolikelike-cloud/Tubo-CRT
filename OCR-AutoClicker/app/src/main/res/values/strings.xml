@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Auto Clicker</string>
+    <string name="accessibility_description">Permite executar toques automáticos nas posições escolhidas pelo usuário.</string>
+</resources>

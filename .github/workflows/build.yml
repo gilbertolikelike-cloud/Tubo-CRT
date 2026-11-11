@@ -1,6 +1,10 @@
 name: Build APK
+
 on:
   push:
+    paths-ignore:
+      - 'OCR-AutoClicker/**'
+      - '.github/workflows/build-ocr.yml'
   workflow_dispatch:
 
 permissions:
