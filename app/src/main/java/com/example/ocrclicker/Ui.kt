@@ -549,6 +549,7 @@ class OcrPanel(ctx: Context, overlay: Boolean) : SettingsPanel(ctx) {
         layoutParams = Ui.editLp()
     }
     private val caseCb = CheckBox(ctx).apply { text = "Ignorar maiúsculas/minúsculas" }
+    private val wholeCb = CheckBox(ctx).apply { text = "Só a palavra inteira (não acha dentro de outra palavra)" }
     private val interval = IntervalField(ctx)
     private val whereG = RadioGroup(ctx)
     private val stop = StopPanel(ctx, overlay, "Número de cliques:")
@@ -559,6 +560,7 @@ class OcrPanel(ctx: Context, overlay: Boolean) : SettingsPanel(ctx) {
         addView(Ui.text(ctx, "Se o texto estiver dentro da caixa verde, ele clica", 14f, Ui.TEXT2))
         addView(wordEt)
         addView(caseCb)
+        addView(wholeCb)
         addView(Ui.divider(ctx))
         addView(Ui.text(ctx, "Tempo para ler de novo", 18f, Ui.TEXT, true))
         addView(Ui.text(ctx, "Se não achar o texto, espera esse tempo e lê outra vez", 14f, Ui.TEXT2))
@@ -580,6 +582,7 @@ class OcrPanel(ctx: Context, overlay: Boolean) : SettingsPanel(ctx) {
     override fun load(s: Store) {
         wordEt.setText(s.word)
         caseCb.isChecked = s.ignoreCase
+        wholeCb.isChecked = s.wholeWord
         interval.set(s.ocrIntervalMs)
         whereG.check(whereG.getChildAt(s.where.coerceIn(0, 2)).id)
         stop.load(s.oStopMode, s.oStopSeconds, s.oStopCount, s.oAnti)
@@ -588,6 +591,7 @@ class OcrPanel(ctx: Context, overlay: Boolean) : SettingsPanel(ctx) {
     override fun save(s: Store) {
         s.word = wordEt.text.toString().trim()
         s.ignoreCase = caseCb.isChecked
+        s.wholeWord = wholeCb.isChecked
         s.ocrIntervalMs = interval.ms().coerceAtLeast(500L)
         s.where = whereG.indexOfChild(whereG.findViewById(whereG.checkedRadioButtonId)).coerceAtLeast(0)
         s.oStopMode = stop.stopMode

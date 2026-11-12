@@ -212,8 +212,9 @@ class PageActivity : Activity() {
             "A captura parou" to
                     "O Android encerra a gravação se você tocar em “Parar” na notificação ou na barra de status. Desabilite e habilite o modo OCR de novo.",
             "Os cliques saem fora de ordem" to
-                    "Confira se o texto que o OCR procura não aparece também onde você está digitando/clicando (ex.: um campo de busca): " +
-                    "o OCR clicaria nele. Deixe a caixa verde só em cima do lugar onde o botão (ex.: YES) aparece.",
+                    "Se “Usar o OCR junto” estiver ligado, o OCR também clica. Cada clique faz o alvo PISCAR (multi) ou a caixa verde piscar (OCR), " +
+                    "e a barra mostra onde o OCR clicou. Deixe a caixa verde só em cima do lugar onde o botão (ex.: YES) aparece, " +
+                    "longe de campos onde você digita, ou desligue o OCR junto.",
             "O celular trava" to
                     "Use intervalos acima de 40 ms. Intervalos muito curtos sobrecarregam o aparelho.",
             "Girei a tela e a barra ficou fora do lugar" to

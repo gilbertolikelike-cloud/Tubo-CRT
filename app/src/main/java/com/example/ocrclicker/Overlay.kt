@@ -14,6 +14,7 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.view.Choreographer
 import android.text.InputType
 import android.view.Gravity
 import android.view.MotionEvent
@@ -138,13 +139,22 @@ class Overlay(
     private val engine: ClickEngine = ClickEngine(
         svc,
         status = { s -> main.post { stPrimary = s; refreshStatus() } },
-        onFinished = { main.post { if (!anyRunning()) setRunningUi(false) } }
+        onFinished = { main.post { if (!anyRunning()) setRunningUi(false) } },
+        onTapped = { i -> main.post { flashTarget(i) } }
     )
     private val ocrEngine: ClickEngine = ClickEngine(
         svc,
         status = { s -> main.post { stOcr = if (mode == Mode.OCR) s else "OCR: $s"; refreshStatus() } },
-        onFinished = { main.post { if (!anyRunning()) setRunningUi(false) } }
+        onFinished = { main.post { if (!anyRunning()) setRunningUi(false) } },
+        onTapped = { _ -> main.post { boxView.flash() } }
     )
+
+    /** Faz o alvo [i] (0-based) piscar quando o motor clica nele, para dar para VER a ordem. */
+    private fun flashTarget(i: Int) {
+        val idx = i - page * PAGE
+        if (i < 0 || idx < 0 || idx >= pageSets.size) return
+        (pageSets[idx].a as? TargetView)?.flash()
+    }
 
     private fun anyRunning(): Boolean = engine.isRunning() || ocrEngine.isRunning()
 
@@ -320,14 +330,30 @@ class Overlay(
     }
 
     // ------------------------------------------------------------------ marcador arrastável
-    private var lastUpd = 0L
-
-    /** updateViewLayout é uma chamada ao sistema: durante o arrastar, no máximo ~70 por segundo. */
-    private fun upd(v: View, p: WindowManager.LayoutParams, force: Boolean = false) {
-        val now = SystemClock.uptimeMillis()
-        if (force || now - lastUpd >= 14) {
-            lastUpd = now
+    // Posição das janelas durante o arrastar: no máximo UMA atualização por quadro da tela
+    // (vsync), usando sempre a posição mais recente. Bem mais suave que um timer fixo.
+    private var pendV: View? = null
+    private var pendP: WindowManager.LayoutParams? = null
+    private var frameQueued = false
+    private val frameCb = Choreographer.FrameCallback {
+        frameQueued = false
+        val v = pendV
+        val p = pendP
+        if (v != null && p != null) {
             try { wm.updateViewLayout(v, p) } catch (e: Exception) { }
+        }
+    }
+
+    private fun upd(v: View, p: WindowManager.LayoutParams, force: Boolean = false) {
+        if (force) {
+            try { wm.updateViewLayout(v, p) } catch (e: Exception) { }
+            return
+        }
+        pendV = v
+        pendP = p
+        if (!frameQueued) {
+            frameQueued = true
+            Choreographer.getInstance().postFrameCallback(frameCb)
         }
     }
 
@@ -647,7 +673,7 @@ class Overlay(
         if (mode != Mode.OCR) gate = { on -> if (on) engine.pause() else engine.resume() }
         ocrEngine.startOcr(
             fixed, region,
-            OcrParams(store.word, store.ignoreCase, store.ocrIntervalMs, store.where),
+            OcrParams(store.word, store.ignoreCase, store.ocrIntervalMs, store.where, store.wholeWord),
             Stop(store.oStopMode, store.oStopSeconds.toLong(), store.oStopCount), store.oAnti, gate
         )
     }
@@ -816,6 +842,16 @@ class TargetView(
         color = (base and 0x00FFFFFF) or 0x33000000
     }
     private val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFF1744.toInt() }
+    private var lit = false
+    private val litPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCCFFFFFF.toInt() }
+
+    /** Pisca quando o motor clica neste alvo (dá para ver a ordem 1, 2, 3...). */
+    fun flash() {
+        lit = true
+        invalidate()
+        postDelayed({ lit = false; invalidate() }, 160)
+    }
+
     private val txt = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = if (end) 0xFF2979FF.toInt() else 0xFFFF9800.toInt()
         textAlign = Paint.Align.CENTER
@@ -827,6 +863,7 @@ class TargetView(
         val cy = height / 2f
         val r = minOf(cx, cy) - 2 * d
         c.drawCircle(cx, cy, r, fill)
+        if (lit) c.drawCircle(cx, cy, r, litPaint)
         c.drawCircle(cx, cy, r, ring)
         if (number > 0) {
             txt.textSize = r * 1.1f
@@ -884,14 +921,30 @@ class BoxView(
 
     private val touchSlop = ViewConfiguration.get(ctx).scaledTouchSlop
     private var moved = false
-    private var lastUpd = 0L
+    private var queued = false
+    private var lit = false
+    private val litPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x5500E676 }
 
+    private val frameCb = Choreographer.FrameCallback {
+        queued = false
+        try { wm.updateViewLayout(this, lp) } catch (ex: Exception) { }
+    }
+
+    /** No máximo uma atualização por quadro da tela (vsync). */
     private fun push(force: Boolean) {
-        val now = SystemClock.uptimeMillis()
-        if (force || now - lastUpd >= 14) {
-            lastUpd = now
+        if (force) {
             try { wm.updateViewLayout(this, lp) } catch (ex: Exception) { }
+        } else if (!queued) {
+            queued = true
+            Choreographer.getInstance().postFrameCallback(frameCb)
         }
+    }
+
+    /** Pisca quando o OCR clica. */
+    fun flash() {
+        lit = true
+        invalidate()
+        postDelayed({ lit = false; invalidate() }, 160)
     }
 
     private val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -907,6 +960,7 @@ class BoxView(
     private var oh = 0
 
     override fun onDraw(c: Canvas) {
+        if (lit) c.drawRect(pad.toFloat(), pad.toFloat(), (width - pad).toFloat(), (height - pad).toFloat(), litPaint)
         c.drawRect(pad.toFloat(), pad.toFloat(), (width - pad).toFloat(), (height - pad).toFloat(), border)
         c.drawCircle(width - pad / 2f, height - pad / 2f, pad / 2f, knob)
     }

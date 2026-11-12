@@ -23,7 +23,7 @@ import java.util.concurrent.locks.LockSupport
 /** Condição de parada: mode 0 = nunca, 1 = depois de [seconds] s, 2 = depois de [count] ciclos/cliques. */
 class Stop(val mode: Int, val seconds: Long, val count: Int)
 
-class OcrParams(val word: String, val ignoreCase: Boolean, val everyMs: Long, val where: Int)
+class OcrParams(val word: String, val ignoreCase: Boolean, val everyMs: Long, val where: Int, val wholeWord: Boolean)
 
 /**
  * Motor de cliques (thread própria). Três modos:
@@ -38,7 +38,8 @@ class OcrParams(val word: String, val ignoreCase: Boolean, val everyMs: Long, va
 class ClickEngine(
     private val svc: AccessibilityService,
     private val status: (String) -> Unit,   // chamado da thread de trabalho
-    private val onFinished: () -> Unit      // idem
+    private val onFinished: () -> Unit,     // idem
+    private val onTapped: ((Int) -> Unit)? = null   // índice do alvo clicado (multi) / -1 = clique do OCR
 ) {
     companion object {
         const val TAP_MS = 10L
@@ -177,6 +178,7 @@ class ClickEngine(
                 val t0 = System.nanoTime()
                 val g = cache?.get(i) ?: gestureFor(t)
                 if (!dispatch(g, true, dur)) { say("serviço parou", true); break@outer }
+                onTapped?.invoke(i)                          // faz o alvo piscar na tela
                 say("ciclo ${cycles + 1} · alvo ${i + 1}/${list.size}")
                 waitUntil(t0 + (jitMs(t.delayMs) + dur) * 1_000_000L)
             }
@@ -209,7 +211,7 @@ class ClickEngine(
                         gate?.invoke(false)
                         say("falha no OCR", true)
                     } else {
-                        val hit = find(text, p.word, p.ignoreCase)
+                        val hit = find(text, p)
                         if (hit != null) {
                             found = true
                             gate?.invoke(true)                // viu o texto: segura todos os outros cliques
@@ -223,7 +225,8 @@ class ClickEngine(
                             }
                             dispatch(tap(jit(pt.x), jit(pt.y)), true, TAP_MS)
                             clicks++
-                            say("✓ achou! cliques: $clicks", true)
+                            onTapped?.invoke(-1)             // faz a caixa verde piscar
+                            say("✓ clicou em ${pt.x},${pt.y} (#$clicks)", true)
                             if (stop.mode == 2 && clicks >= stop.count) break
                         } else {
                             gate?.invoke(false)               // texto sumiu: os outros voltam a clicar
@@ -263,15 +266,22 @@ class ClickEngine(
         null
     }
 
-    private fun find(t: Text, word: String, ignoreCase: Boolean): Rect? {
-        val w = norm(word, ignoreCase)
+    private fun find(t: Text, p: OcrParams): Rect? {
+        val w = norm(p.word, p.ignoreCase)
         if (w.isEmpty()) return null
+        // palavra inteira: não pode ter letra/número colado antes ou depois
+        val re: Regex? =
+            if (p.wholeWord) Regex("(?<![\\p{L}\\p{N}])" + Regex.escape(w) + "(?![\\p{L}\\p{N}])") else null
+        fun ok(txt: String): Boolean {
+            val n = norm(txt, p.ignoreCase)
+            return if (re != null) re.containsMatchIn(n) else n.contains(w)
+        }
         for (b in t.textBlocks) {
             for (line in b.lines) {
-                if (!norm(line.text, ignoreCase).contains(w)) continue
+                if (!ok(line.text)) continue
                 if (!w.contains(' ')) {
                     for (el in line.elements) {
-                        if (norm(el.text, ignoreCase).contains(w)) {
+                        if (ok(el.text)) {
                             el.boundingBox?.let { return it }
                         }
                     }

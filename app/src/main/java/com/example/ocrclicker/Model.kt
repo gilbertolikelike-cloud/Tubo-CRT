@@ -139,6 +139,10 @@ class Store(context: Context) {
     var ignoreCase: Boolean
         get() = b("ignoreCase", true)
         set(v) = put("ignoreCase", v)
+    /** true = só acha a palavra solta (não "yes" dentro de "esysyesye"). */
+    var wholeWord: Boolean
+        get() = b("wholeWord", true)
+        set(v) = put("wholeWord", v)
     var ocrIntervalMs: Long
         get() = l("ocrInt", 2000L)
         set(v) = put("ocrInt", v)
