@@ -28,8 +28,9 @@ import java.util.Random;
 
 /**
  * Espada solta (Sword Familiar): depois de uns minutos sem ninguém tocar na tela, a espada do Castlevania sai voando sozinha.
- * De vez em quando aparece um pato; a espada corre atrás (e às vezes erra), ataca com o leque verde do jogo e raios,
- * e um balão de conversa mostra um versículo sorteado. De vez em quando o Alucard aparece. Tocar na tela acaba com tudo.
+ * De vez em quando aparece um pato; a espada corre atrás, gira no lugar, recua um pouco e dispara em linha reta
+ * (a estocada do jogo, com o rastro verde). Às vezes erra. Quando acerta, um balão de conversa mostra um versículo sorteado.
+ * O Alucard aparece raramente. Tocar na tela acaba com tudo.
  * A janela é de tela cheia e não pega toque.
  */
 final class Familiar {
@@ -81,9 +82,12 @@ final class Familiar {
     }
 
     private static final class FamiliarView extends View {
-        private static final int ROAM = 0, CHASE = 1, SLASH = 2, TALK = 3;
-        private static final float SWORD_DP = 112f;      // comprimento da espada na tela
-        private static final float SLASH_FRAME_S = 0.045f; // duração de cada quadro do golpe
+        // máquina de estados parecida com a do jogo: IDLE, SCAN (perseguir), WIND-UP, STRIKE, RECOVERY (+ fala)
+        private static final int ROAM = 0, CHASE = 1, WINDUP = 2, STRIKE = 3, RECOVER = 4, TALK = 5;
+        private static final float SWORD_DP = 112f;        // comprimento da espada na tela
+        private static final float WINDUP_S = 0.55f;       // giro no lugar antes da estocada (nível baixo)
+        private static final float STRIKE_SPEED_DP = 520f; // velocidade da estocada
+        private static final float STRIKE_DIST_DP = 380f;  // até onde a estocada vai
 
         private final float d;
         private final SharedPreferences sp;
@@ -99,8 +103,8 @@ final class Familiar {
         private final RectF r = new RectF(), dst = new RectF();
         private final Rect src = new Rect();
         private final List<Spark> sparks = new ArrayList<>();
-        private final Shader glow;
-        private volatile SpriteSheet swordSheet, duckSheet, alucardSheet;
+        private final ArrayList<float[]> trail = new ArrayList<>(); // x, y, tempo: rastro verde da espada
+        private volatile SpriteSheet swordSheet, trailSheet, duckSheet, alucardSheet;
         private volatile Verses verses;
         private volatile boolean released;
 
@@ -109,15 +113,16 @@ final class Familiar {
         private int state = ROAM;
         // espada
         private float sx, sy, svx, svy, ang, tx, ty, nextWaypoint, chaseResumeAt;
-        // pato
-        private boolean duckAlive, duckHopped, willMiss;
-        private float dx, dy, dvx, dvy, duckTurnAt, duckSpawnAt, duckChaseAt;
+        private float windT, angVel, dirX, dirY, traveled, recoverT;
+        private boolean willMiss, popped;
         private int missStreak;
-        // golpe e fala
-        private float slashT, slashX, slashY, talkUntil, missDy;
-        private boolean popped;
+        // pato
+        private boolean duckAlive;
+        private float dx, dy, dvx, dvy, duckTurnAt, duckSpawnAt, duckChaseAt;
+        // fala
+        private float talkUntil;
         private StaticLayout verseLayout, haloLayout, refLayout, refHaloLayout;
-        // Alucard (aparece de vez em quando e a espada voa em volta dele)
+        // Alucard (raro)
         private boolean alucardOn;
         private float alucardX, alucardStart, alucardUntil, alucardNextAt;
 
@@ -139,22 +144,21 @@ final class Familiar {
             refHalo.setTypeface(sansBold);
             refHalo.setStyle(Paint.Style.STROKE);
             refHalo.setStrokeJoin(Paint.Join.ROUND);
-            glow = new RadialGradient(0, 0, 70 * d, 0x663A8BFF, 0x003A8BFF, Shader.TileMode.CLAMP);
             duckSpawnAt = 5f + rnd.nextFloat() * 4f;
-            alucardNextAt = 9f + rnd.nextFloat() * 12f;
+            alucardNextAt = 300f + rnd.nextFloat() * 120f; // só depois de uns 5 minutos
             final Context app = c.getApplicationContext();
             new Thread(() -> {
                 Process.setThreadPriority(Process.THREAD_PRIORITY_BACKGROUND);
                 SpriteSheet sword = SpriteSheet.load(app, "familiar", 1);
+                SpriteSheet trailS = SpriteSheet.load(app, "sword_trail", 1);
                 SpriteSheet duck = SpriteSheet.load(app, "duck_target", 2);
                 SpriteSheet alucard = SpriteSheet.load(app, "alucard", 1);
                 Verses v = Verses.load(app);
                 if (released) {
-                    if (sword != null) sword.recycle();
-                    if (duck != null) duck.recycle();
-                    if (alucard != null) alucard.recycle();
+                    for (SpriteSheet s : new SpriteSheet[]{sword, trailS, duck, alucard}) if (s != null) s.recycle();
                     return;
                 }
+                trailSheet = trailS;
                 duckSheet = duck;
                 alucardSheet = alucard;
                 verses = v;
@@ -164,14 +168,13 @@ final class Familiar {
 
         void release() {
             released = true;
-            SpriteSheet a = swordSheet, b = duckSheet, c = alucardSheet;
+            SpriteSheet[] all = {swordSheet, trailSheet, duckSheet, alucardSheet};
             swordSheet = null;
+            trailSheet = null;
             duckSheet = null;
             alucardSheet = null;
             verses = null;
-            if (a != null) a.recycle();
-            if (b != null) b.recycle();
-            if (c != null) c.recycle();
+            for (SpriteSheet s : all) if (s != null) s.recycle();
         }
 
         @Override protected void onSizeChanged(int nw, int nh, int ow, int oh) {
@@ -198,6 +201,11 @@ final class Familiar {
             return a;
         }
 
+        /** Ângulo pra ponta da espada (desenhada pra baixo) apontar na direção (ux, uy). */
+        private static float tipAngle(float ux, float uy) {
+            return (float) Math.toDegrees(Math.atan2(-ux, uy));
+        }
+
         private void update(float dt) {
             updateAlucard();
             switch (state) {
@@ -207,14 +215,17 @@ final class Familiar {
                     if (duckAlive && t >= duckChaseAt && t >= chaseResumeAt) { state = CHASE; rollMiss(); }
                     break;
                 case CHASE: chase(dt); break;
-                case SLASH: slash(dt); break;
+                case WINDUP: windup(dt); break;
+                case STRIKE: strike(dt); break;
+                case RECOVER: recover(dt); break;
                 default: talk(dt); break;
             }
             moveDuck(dt);
             updateSparks(dt);
+            updateTrail();
         }
 
-        /** Alucard entra, fica parado uns segundos e sai. Enquanto ele está aí, a espada voa em volta dele. */
+        /** O Alucard é raro: entra, fica parado uns segundos e sai. Enquanto ele está aí, a espada voa em volta dele. */
         private void updateAlucard() {
             if (alucardSheet == null) return;
             if (!alucardOn && t >= alucardNextAt) {
@@ -224,11 +235,11 @@ final class Familiar {
                 alucardUntil = t + 10f + rnd.nextFloat() * 7f;
             } else if (alucardOn && t >= alucardUntil) {
                 alucardOn = false;
-                alucardNextAt = t + 35f + rnd.nextFloat() * 55f;
+                alucardNextAt = t + 240f + rnd.nextFloat() * 240f;
             }
         }
 
-        /** Vai em direção a um ponto, acelerando e freando suave. A ponta da espada (pra baixo no desenho) aponta pra onde ela vai. */
+        /** Vai em direção a um ponto, acelerando e freando suave. A ponta da espada aponta pra onde ela vai. */
         private void steer(float targetX, float targetY, float maxSpeed, float accel, float dt) {
             float vx = targetX - sx, vy = targetY - sy, dist = (float) Math.hypot(vx, vy);
             float speed = maxSpeed * Math.min(1f, dist / (90 * d));
@@ -240,7 +251,7 @@ final class Familiar {
             sx += svx * dt;
             sy += svy * dt;
             float now = (float) Math.hypot(svx, svy);
-            float want = now > 60 * d ? (float) Math.toDegrees(Math.atan2(-svx, svy)) : (float) Math.sin(t * 2f) * 8f;
+            float want = now > 60 * d ? tipAngle(svx, svy) : (float) Math.sin(t * 2f) * 8f;
             ang += wrap(want - ang) * Math.min(1f, 7f * dt);
         }
 
@@ -277,18 +288,15 @@ final class Familiar {
 
         private void moveDuck(float dt) {
             if (!duckAlive) return;
-            if (t >= duckTurnAt && !duckHopped) { // passeia sem rumo
+            if (t >= duckTurnAt) { // passeia sem rumo
                 double a = rnd.nextDouble() * Math.PI * 2;
                 float speed = (35 + rnd.nextFloat() * 40) * d;
                 dvx = (float) Math.cos(a) * speed;
                 dvy = (float) Math.sin(a) * speed * 0.5f;
                 duckTurnAt = t + 0.8f + rnd.nextFloat() * 1.4f;
             }
-            if (state != SLASH || duckHopped) {
-                dx += dvx * dt;
-                dy += dvy * dt;
-            }
-            if (duckHopped) { dvx *= 0.94f; dvy *= 0.94f; }
+            dx += dvx * dt;
+            dy += dvy * dt;
             float m = 40 * d;
             if (dx < m) { dx = m; dvx = Math.abs(dvx); }
             if (dx > w - m) { dx = w - m; dvx = -Math.abs(dvx); }
@@ -296,75 +304,100 @@ final class Familiar {
             if (dy > h - m * 1.6f) { dy = h - m * 1.6f; dvy = -Math.abs(dvy); }
         }
 
-        /** Sorteia se o próximo golpe erra (3 em 10). Depois de errar duas vezes seguidas, o próximo acerta. */
+        /** Sorteia se a próxima estocada erra (3 em 10). Depois de errar duas vezes seguidas, a próxima acerta. */
         private void rollMiss() {
             willMiss = missStreak < 2 && rnd.nextFloat() < 0.30f;
-            missDy = (rnd.nextFloat() - 0.5f) * 0.6f;
         }
 
-        /** Onde a espada fica pra golpear: o leque verde sai pelo lado esquerdo dela, então ela fica à direita do pato. */
-        private void slashSpot() {
-            float len = swordLen();
-            if (willMiss) {
-                slashX = dx + len * 1.5f;
-                slashY = dy + missDy * len;
-            } else {
-                slashX = dx + len * 0.45f;
-                slashY = dy - len * 0.15f - duckH() * 0.1f;
-            }
-        }
-
+        /** SCAN: chega perto do pato (sem encostar) e começa a preparar a estocada. */
         private void chase(float dt) {
             if (!duckAlive) { state = ROAM; return; }
-            slashSpot();
-            steer(slashX, slashY, 300 * d, 1100 * d, dt); // devagar o bastante pra dar pra ver
-            if (Math.hypot(slashX - sx, slashY - sy) < 60 * d) {
-                state = SLASH;
-                slashT = 0f;
-                popped = false;
-                duckHopped = false;
+            float vx = sx - dx, vy = sy - dy, dist = (float) Math.hypot(vx, vy);
+            if (dist < 1f) { vx = 1f; vy = 0f; dist = 1f; }
+            float standoff = 230 * d;
+            steer(dx + vx / dist * standoff, dy + vy / dist * standoff, 300 * d, 1100 * d, dt);
+            if (Math.hypot(dx + vx / dist * standoff - sx, dy + vy / dist * standoff - sy) < 45 * d) {
+                // WIND-UP: trava a mira no pato, zera a velocidade e começa a girar no lugar
+                float ux = dx - sx, uy = dy - sy, len = Math.max(1f, (float) Math.hypot(ux, uy));
+                ux /= len;
+                uy /= len;
+                if (willMiss) { // erra de propósito: gira a mira de 22 a 35 graus pra um dos lados
+                    double off = Math.toRadians((22 + rnd.nextFloat() * 13) * (rnd.nextBoolean() ? 1 : -1));
+                    float c0 = (float) Math.cos(off), s0 = (float) Math.sin(off);
+                    float nx = ux * c0 - uy * s0, ny = ux * s0 + uy * c0;
+                    ux = nx;
+                    uy = ny;
+                }
+                dirX = ux;
+                dirY = uy;
                 svx = 0f;
                 svy = 0f;
+                windT = 0f;
+                angVel = 0f;
+                popped = false;
+                state = WINDUP;
             }
         }
 
-        private void slash(float dt) {
-            slashT += dt;
-            float k = Math.min(1f, 10f * dt);
-            sx += (slashX - sx) * k;
-            sy += (slashY - sy) * k;
-            ang += wrap(0f - ang) * Math.min(1f, 12f * dt); // alinha a espada pro golpe
-            if (willMiss && !duckHopped && slashT >= 0.15f) { // o pato pula pra longe
-                duckHopped = true;
-                float dir = dx > w / 2f ? -1f : 1f;
-                dvx = dir * 220 * d;
-                dvy = -110 * d;
+        private void windup(float dt) {
+            windT += dt;
+            angVel = Math.min(1500f, angVel + 2600f * dt); // acelera o giro
+            ang += angVel * dt;
+            if (windT > WINDUP_S - 0.12f) { // micro-recuo: a lâmina anda um pouco pra trás antes de sair
+                sx -= dirX * 70 * d * dt;
+                sy -= dirY * 70 * d * dt;
             }
-            if (!willMiss && !popped && slashT >= 0.32f) {
+            if (windT >= WINDUP_S) {
+                ang = tipAngle(dirX, dirY); // estocada: a ponta aponta exatamente pro alvo
+                svx = dirX * STRIKE_SPEED_DP * d;
+                svy = dirY * STRIKE_SPEED_DP * d;
+                traveled = 0f;
+                state = STRIKE;
+            }
+        }
+
+        private void strike(float dt) {
+            float stepX = svx * dt, stepY = svy * dt;
+            sx += stepX;
+            sy += stepY;
+            traveled += (float) Math.hypot(stepX, stepY);
+            if (!willMiss && !popped && duckAlive && Math.hypot(dx - sx, dy - sy) < 52 * d) { // acertou
                 popped = true;
                 duckAlive = false;
                 missStreak = 0;
                 spawnSparks(dx, dy);
                 chooseVerse();
             }
-            float total = (swordSheet != null ? swordSheet.frames : 18) * SLASH_FRAME_S + 0.05f;
-            if (slashT >= total) {
-                if (willMiss) {      // errou: volta pra perseguição, depois de uma pausa
-                    missStreak++;
-                    duckHopped = false; // o pato volta a passear
-                    duckTurnAt = t;
-                    state = ROAM;
-                    chaseResumeAt = t + 0.7f;
-                    nextWaypoint = t;
-                    duckChaseAt = t;
-                } else if (verseLayout != null) {
+            boolean offScreen = sx < -30 * d || sx > w + 30 * d || sy < -30 * d || sy > h + 30 * d;
+            if (traveled >= STRIKE_DIST_DP * d || offScreen) {
+                state = RECOVER;
+                recoverT = 0f;
+            }
+        }
+
+        private void recover(float dt) {
+            recoverT += dt;
+            float k = (float) Math.pow(0.02, dt); // freia rápido
+            svx *= k;
+            svy *= k;
+            sx += svx * dt;
+            sy += svy * dt;
+            ang += wrap(0f - ang) * Math.min(1f, 5f * dt);
+            if (recoverT >= 0.5f) {
+                if (popped && verseLayout != null) {
                     state = TALK;
                     talkUntil = t + talkSeconds;
                     duckSpawnAt = talkUntil + 10f + rnd.nextFloat() * 12f;
-                } else {
+                } else if (popped) {
                     state = ROAM;
                     nextWaypoint = t;
                     duckSpawnAt = t + 10f + rnd.nextFloat() * 12f;
+                } else { // errou: respira e tenta de novo
+                    missStreak++;
+                    state = ROAM;
+                    chaseResumeAt = t + 0.8f;
+                    duckChaseAt = t;
+                    nextWaypoint = t;
                 }
             }
         }
@@ -408,7 +441,7 @@ final class Familiar {
         }
 
         private void spawnSparks(float x, float y) {
-            int[] colors = {0xFFFFFFFF, 0xFF8FD0FF, 0xFF7CFF8A};
+            int[] colors = {0xFFFFFFFF, 0xFFB8FFC4, 0xFF7CFF8A};
             for (int i = 0; i < 20; i++) {
                 Spark s = new Spark();
                 double a = rnd.nextDouble() * Math.PI * 2;
@@ -435,6 +468,12 @@ final class Familiar {
             }
         }
 
+        /** Guarda onde a espada passou, pro rastro verde (só quando ela está rápida). */
+        private void updateTrail() {
+            if (Math.hypot(svx, svy) > 90 * d) trail.add(new float[]{sx, sy, t});
+            while (!trail.isEmpty() && t - trail.get(0)[2] > 0.4f) trail.remove(0);
+        }
+
         // ---------- desenho ----------
         @Override protected void onDraw(Canvas c) {
             if (released || w <= 0) return;
@@ -446,7 +485,7 @@ final class Familiar {
                 update(dt);
                 drawAlucard(c);
                 drawDuck(c);
-                drawSlashBolts(c);
+                drawTrail(c);
                 drawSparks(c);
                 drawSword(c);
                 drawBubble(c);
@@ -482,67 +521,56 @@ final class Familiar {
             c.restore();
         }
 
-        /** A espada do gif: o ponto de rotação fica no corpo dela e o leque verde do golpe vem junto nos quadros. */
+        /** Rastro verde: faixa que some atrás da espada e, na estocada, o rastro do jogo (do arquivo "sprite ataque espada"). */
+        private void drawTrail(Canvas c) {
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeCap(Paint.Cap.ROUND);
+            float[] prev = null;
+            for (float[] pt : trail) {
+                if (prev != null) {
+                    float life = Math.max(0f, 1f - (t - pt[2]) / 0.4f);
+                    p.setStrokeWidth(16 * d);
+                    p.setColor(Color.argb((int) (55 * life), 60, 255, 110));
+                    c.drawLine(prev[0], prev[1], pt[0], pt[1], p);
+                    p.setStrokeWidth(7 * d);
+                    p.setColor(Color.argb((int) (150 * life), 124, 255, 138));
+                    c.drawLine(prev[0], prev[1], pt[0], pt[1], p);
+                    p.setStrokeWidth(2.2f * d);
+                    p.setColor(Color.argb((int) (230 * life), 239, 255, 234));
+                    c.drawLine(prev[0], prev[1], pt[0], pt[1], p);
+                }
+                prev = pt;
+            }
+            SpriteSheet s = trailSheet;
+            if (state == STRIKE && s != null) { // o rastro do ataque: a ponta (linha branca) fica na espada
+                s.frame(src, 0); // 1º tom (nível 1 a 49); os outros tons são dos níveis maiores
+                float len = 190 * d, hh = len / s.aspect;
+                float fade = Math.max(0f, 1f - traveled / (STRIKE_DIST_DP * d) * 0.6f);
+                c.save();
+                c.translate(sx, sy);
+                c.rotate((float) Math.toDegrees(Math.atan2(dirY, dirX)));
+                dst.set(-len + 14 * d, -hh / 2f, 14 * d, hh / 2f);
+                bmp.setAlpha((int) (255 * fade));
+                c.drawBitmap(s.bitmap, src, dst, bmp);
+                bmp.setAlpha(255);
+                c.restore();
+            }
+        }
+
+        /** A espada de pixel art do jogo (modelo do nível 1 a 49). Sem brilho em volta. */
         private void drawSword(Canvas c) {
             SpriteSheet s = swordSheet;
             if (s == null) return;
-            int frame = state == SLASH ? Math.min(s.frames - 1, (int) (slashT / SLASH_FRAME_S)) : 0;
-            s.frame(src, frame);
+            s.frame(src, 0);
             float hh = swordLen() / s.sh, ww = hh * s.aspect;
             float bob = state == ROAM || state == TALK ? (float) Math.sin(t * 3f) * 5 * d : 0f;
             c.save();
             c.translate(sx, sy + bob);
-            p.setStyle(Paint.Style.FILL);
-            p.setColor(0xFFFFFFFF);
-            p.setShader(glow);
-            c.drawCircle(0, 0, 70 * d, p);
-            p.setShader(null);
             c.rotate(ang);
             dst.set(-s.ax * ww, -s.ay * hh, (1f - s.ax) * ww, (1f - s.ay) * hh);
             bmp.setAlpha(255);
             c.drawBitmap(s.bitmap, src, dst, bmp);
             c.restore();
-        }
-
-        /** Raios azuis em volta do leque verde, durante o golpe. */
-        private void drawSlashBolts(Canvas c) {
-            if (state != SLASH) return;
-            float total = (swordSheet != null ? swordSheet.frames : 18) * SLASH_FRAME_S;
-            float strength = (float) Math.sin(Math.PI * Math.min(1f, slashT / total)); // sobe e desce junto com o leque
-            if (strength < 0.15f) return;
-            float len = swordLen(), cx = slashX - len * 0.45f, cy = slashY + len * 0.15f; // centro do leque
-            for (int i = 0; i < 7; i++) {
-                double a = rnd.nextDouble() * Math.PI * 2;
-                float r0 = len * (0.35f + rnd.nextFloat() * 0.3f), r1 = len * (0.9f + rnd.nextFloat() * 0.5f);
-                bolt(c, cx + (float) Math.cos(a) * r0, cy + (float) Math.sin(a) * r0,
-                        cx + (float) Math.cos(a) * r1, cy + (float) Math.sin(a) * r1, strength);
-            }
-            if (!willMiss && slashT > 0.28f && slashT < 0.40f) { // clarão do impacto
-                p.setStyle(Paint.Style.FILL);
-                p.setColor(Color.argb(110, 255, 255, 255));
-                c.drawCircle(dx, dy, 70 * d, p);
-            }
-        }
-
-        private void bolt(Canvas c, float x0, float y0, float x1, float y1, float fade) {
-            float ddx = x1 - x0, ddy = y1 - y0, len = (float) Math.hypot(ddx, ddy);
-            if (len < 6 * d) return;
-            float nx = -ddy / len, ny = ddx / len;
-            path.reset();
-            path.moveTo(x0, y0);
-            for (int s = 1; s < 6; s++) {
-                float u = s / 6f, jitter = (rnd.nextFloat() - 0.5f) * 16 * d;
-                path.lineTo(x0 + ddx * u + nx * jitter, y0 + ddy * u + ny * jitter);
-            }
-            path.lineTo(x1, y1);
-            p.setStyle(Paint.Style.STROKE);
-            p.setStrokeCap(Paint.Cap.ROUND);
-            p.setStrokeWidth(3.4f * d);
-            p.setColor(Color.argb((int) (95 * fade), 60, 140, 255));
-            c.drawPath(path, p);
-            p.setStrokeWidth(1.4f * d);
-            p.setColor(Color.argb((int) (240 * fade), 205, 235, 255));
-            c.drawPath(path, p);
         }
 
         private void drawSparks(Canvas c) {

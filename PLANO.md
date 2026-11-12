@@ -33,3 +33,31 @@ Guardado aqui pra não se perder se a conversa acabar. Ordem combinada: 1) ajust
 
 ## Depois do jogo
 - TV Philco flutuando com vídeo de uma pasta (lista de reprodução), redimensionável pelas quinas; olho de peixe se der.
+
+
+## Atualização (arquivos novos do Gilberto)
+Tudo que ele mandou está em `referencias/` (gifs, folhas de sprites, os 2 modelos de espada, o gif e o som do Puxa-Frango). Sons já estão em `res/raw/`: `level_up.mp3` (2 s, som de subir de nível da espada) e `puxa_frango.mp3` (8 s).
+
+### Decisões novas
+- O ataque da espada NÃO é raio. É a estocada do jogo: gira no lugar acelerando (WIND-UP), recua um pouco e dispara em linha reta com o rastro verde da folha `sprite ataque espada.png` (4 tons, do escuro ao brilhante, um por faixa de nível). Sem brilho azul em volta da espada.
+- Modelos de espada em pixel art: `modelo 1` (nível 1 a 49) e `modelo 2` (nível 50+, com as duas lâminas laterais). Já em `familiar_sword.png` (quadro 0 e quadro 1). Só o 1 está em uso.
+- Alucard: raro. Hoje só aparece depois de ~5 min da espada solta, e a cada 4 a 8 min. Quando o jogo existir: vira BOSS depois de 1000 kills com 5% de chance (ele tem muitas animações, ver `sprite do movimento.png` e `castlevaniasotnsheet1.gif`).
+- Puxa-Frango: outro boss aleatório, 2,5% de chance, tem gif (500x500, 16 quadros) e som próprio.
+- Painel de medalhas: um botão no painel abre um SEGUNDO painel com as medalhas, em prateleiras de madeira com casas (a imagem de exemplo do Gilberto tem 4 casas empilhadas).
+- Versículo: balão azul, letra preta com contorno branco, tamanho ajustável (verse_size). Está bom de ler.
+
+### Lógica do Sword Familiar (PDF "logica_sword_familiar_sotn") - resumo
+- Variáveis: LVL 1-99, EXP 0-99 (100 = sobe de nível), STATE, TIMER, ANGULAR_VEL, CHARGE_TIMER, TARGET_VECTOR.
+- Estados (60 FPS): 0 IDLE (órbita com inércia), 1 SCAN (alvo hostil mais próximo, HP>0, na tela), 2 WIND-UP (trava o alvo, calcula theta = atan2(dy,dx), gira no lugar enquanto TIMER cai), 3 STRIKE (velocidade linear na direção theta + hitbox), 4 RECOVERY (desliga a hitbox, freia e volta ao 0).
+- Ataques no STRIKE: investida simples; giro contínuo (360 graus, vários ticks de dano); combo de estocadas (nível 80+, 2 a 4 investidas seguidas sem voltar ao 0).
+- Giro de impulso: zera VX e VY, CHARGE_TIMER = 30-40 quadros (nível baixo) até 0-3 (nível 80+), ANGULAR_VEL cresce; nos últimos quadros faz micro-recuo (-cos, -sin); no disparo Vx = SPEED_MAX*cos(theta), Vy = SPEED_MAX*sin(theta). Estocada trava o ângulo com a ponta no alvo; corte giratório mantém o giro no máximo.
+- Escala por nível (1-49 / 50-79 / 80-99): SCAN 45 / 15 / 1-3 quadros; WIND-UP 30-40 / 10 / 0-3; projétil 4 / 8 / 12+ px por quadro; padrão: golpe único e retorno lento / perseguição contínua / combos sem recuo; visual: lâmina cinza / brilho azul claro / aura azul intensa com rastro.
+- XP: EXP_Ganha = floor(log2((2 * EXP_Base_Inimigo) / LVL)), mínimo 1. 100 pontos por nível (9.800 do 1 ao 99).
+- Dano: só CUT. RAW_ATK = LVL + bônus do golpe (+ Mojo Mail). Dano_Final = (RAW_ATK - DEF/2) * ((256 - DEF)/256). IMMUNE/ABSORB = 0 ou 1; WEAK x2; RESIST /2. I-frames de ~15 quadros no alvo (exceto multihit).
+- Nível 50: vira equipamento (ATK = nível do familiar); exclusão mútua com a espada na mão.
+- Magia Sword Brothers (MP >= 30, gasta 30): 6 lâminas espectrais em órbita expandida, vários golpes CUT escalados pelo LVL.
+
+### Pendente
+- TV Philco de vídeo (pasta como lista de reprodução, redimensionar pelas quinas, olho de peixe com plano B). A moldura sai de `7_Sem_Título_20261106171530.png`.
+- Respostas ainda não dadas: chance dos patos raros (RGB e ouro) e como sortear as medalhas de versículo.
+- Rodada N = N patos na tela (ideia: ondas, tipos misturados, no máximo ~12 ao mesmo tempo).
