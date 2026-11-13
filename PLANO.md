@@ -100,3 +100,7 @@ Tudo que ele mandou está em `referencias/` (gifs, folhas de sprites, os 2 model
 ## Atualização 5
 - Céu do dia com capa escura (padrão 22%, slider "Escuridão do céu do painel" em ▦, de 0 a 60%).
 - Rastro da espada sai do meio da LÂMINA (a parte azul), nunca do cabo, como no gif do jogo (2026_11_13_12_59_53.gif). O rastro do Alucard que aparece no gif NÃO é usado.
+
+## Atualização 6 (gaveta de verdade)
+- O painel voltou ao desenho de antes (6 botões em duas colunas, nomes embaixo). Entre a hora e as colunas ficaram 2 botãozinhos: TV LISTA e GAVETA.
+- GAVETA: o Gilberto escolhe em ▦ > "Botões da gaveta" quais dos 6 (APAGAR, FOTO, MAX, PARAR, GELO, RAM) vão pra dentro dela (preferência drawer_mask, um bit por botão). Os que ficam no painel reorganizam as casas sem buracos. A gaveta aberta cobre as duas colunas, com borda dourada e uma setinha pra fechar. Padrão: gaveta vazia (painel igual ao de antes).

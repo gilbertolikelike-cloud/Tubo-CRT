@@ -443,6 +443,7 @@ public class MainActivity extends Activity {
             if (on) ed.putBoolean("perf_on", false);
             ed.apply();
         }));
+        box.addView(dialogButton("Botões da gaveta (você escolhe)", v -> showDrawerDialog()));
         box.addView(dialogButton("TV de vídeo (playlists por pasta)", v -> showTvDialog()));
         box.addView(switchRow("Analisador de espectro (pede permissão de áudio)", sp.getBoolean("spectrum_on", true), (b, on) -> {
             sp.edit().putBoolean("spectrum_on", on).apply();
@@ -536,6 +537,25 @@ public class MainActivity extends Activity {
         } catch (RuntimeException e) {
             return "escolhida";
         }
+    }
+
+    /** Escolhe quais dos 6 botões ficam dentro da gaveta (os outros continuam no painel). */
+    private void showDrawerDialog() {
+        final String[] labels = {"FOTO", "APAGAR", "RAM", "MAX", "PARAR", "GELO"}; // na ordem dos botões do painel
+        final boolean[] checked = new boolean[6];
+        int mask = sp.getInt("drawer_mask", 0);
+        for (int i = 0; i < 6; i++) checked[i] = (mask & (1 << i)) != 0;
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("O que vai dentro da gaveta?")
+                .setMultiChoiceItems(labels, checked, (dlg, which, on) -> checked[which] = on)
+                .setPositiveButton("Salvar", (dlg, w) -> {
+                    int m = 0;
+                    for (int i = 0; i < 6; i++) if (checked[i]) m |= 1 << i;
+                    sp.edit().putInt("drawer_mask", m).apply();
+                    Toast.makeText(this, "Gaveta atualizada", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Cancelar", null)
+                .show();
     }
 
     // ---------- TV de vídeo: cada pasta é uma playlist ----------

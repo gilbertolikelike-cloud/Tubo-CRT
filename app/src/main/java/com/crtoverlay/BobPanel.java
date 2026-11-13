@@ -70,7 +70,8 @@ public class BobPanel extends View {
     private static final int[] BUTTON_RING = {0xFF2EAD5B, 0xFFD94040, 0xFF4F6BFF, 0xFFFFC107, 0xFFFF7043, 0xFF4FC3F7};
     private static final int M_SPECTRUM = 13, M_DRAWER = 20, M_TVLIST = 21, M_DRAWER_CLOSE = 22;
     /** Posição dos 6 botões (dp), na ordem FOTO, APAGAR, RAM, MAX, PARAR, GELO. Coluna da direita (de cima pra baixo): APAGAR, FOTO, MAX. Coluna do meio: PARAR, GELO, RAM. */
-    private static final float[] BTN_X = {204, 204, 160, 204, 160, 160}, BTN_Y = {142, 92, 192, 192, 92, 142};
+    private static final int[] SLOT_ORDER = {1, 0, 3, 4, 5, 2}; // APAGAR, FOTO, MAX, PARAR, GELO, RAM
+    private static final float[] SLOT_X = {204, 204, 204, 160, 160, 160}, SLOT_Y = {78, 136, 194, 78, 136, 194}, DRAWER_Y = {92, 142, 192, 92, 142, 192};
     private static final float RAINBOW_LEN = 120f;
     private static final long AUTO_CLOSE_MS = 10000;
     private static final float PANEL_W_DP = 232f, PANEL_H_DP = 360f, BORDER_DP = 6f;
@@ -687,8 +688,22 @@ public class BobPanel extends View {
     // ---------- geometria das peças (dentro do painel, em px) ----------
     private float knobX(int i) { return 48 * d; }
     private float knobY(int i) { return (i == 0 ? 82 : 172) * d; }
-    private float buttonX(int i) { return BTN_X[i] * d; }
-    private float buttonY(int i) { return BTN_Y[i] * d; }
+    /** O botão está dentro da gaveta? (escolhido em ▦ > "Botões da gaveta") */
+    private boolean inDrawer(int button) { return (sp.getInt("drawer_mask", 0) & (1 << button)) != 0; }
+
+    /** Casa que o botão ocupa: os do painel e os da gaveta ocupam as casas em ordem, sem buracos. */
+    private int slotOf(int button, boolean drawer) {
+        int slot = 0;
+        for (int order : SLOT_ORDER) {
+            if (inDrawer(order) != drawer) continue;
+            if (order == button) return slot;
+            slot++;
+        }
+        return -1;
+    }
+
+    private float buttonX(int i) { int s = slotOf(i, inDrawer(i)); return (s < 0 ? -999 : SLOT_X[s]) * d; }
+    private float buttonY(int i) { boolean dr = inDrawer(i); int s = slotOf(i, dr); return (s < 0 ? -999 : (dr ? DRAWER_Y[s] : SLOT_Y[s])) * d; }
     private float transportX(int i) { return (PANEL_W_DP / 2f + (i - 1) * 52) * d; }
     private float transportY() { return 321 * d; }
 
@@ -699,12 +714,13 @@ public class BobPanel extends View {
         float px = x - (panX - winX), py = y - (panY - winY);
         for (int i = 0; i < 2; i++) if (Math.hypot(px - knobX(i), py - knobY(i)) < 38 * d) return i == 0 ? M_VOL : M_BRI;
         if (drawerOpen) {
-            for (int i = 0; i < BUTTONS; i++) if (Math.hypot(px - buttonX(i), py - buttonY(i)) < 20 * d) return M_BTN + i;
+            for (int i = 0; i < BUTTONS; i++) if (inDrawer(i) && Math.hypot(px - buttonX(i), py - buttonY(i)) < 20 * d) return M_BTN + i;
             if (Math.hypot(px - 182 * d, py - 62 * d) < 16 * d) return M_DRAWER_CLOSE;
         } else {
-            if (Math.hypot(px - 182 * d, py - 102 * d) < 26 * d) return M_DRAWER;
-            if (Math.hypot(px - 182 * d, py - 180 * d) < 26 * d) return M_TVLIST;
+            for (int i = 0; i < BUTTONS; i++) if (!inDrawer(i) && Math.hypot(px - buttonX(i), py - buttonY(i)) < 20 * d) return M_BTN + i;
         }
+        if (Math.hypot(px - 111 * d, py - 200 * d) < 17 * d) return M_DRAWER; // botãozinho da gaveta
+        if (Math.hypot(px - 111 * d, py - 164 * d) < 17 * d) return M_TVLIST; // botãozinho da TV
         for (int i = 0; i < 3; i++) if (Math.hypot(px - transportX(i), py - transportY()) < 22 * d) return M_TRANSPORT + i;
         if (music.analyzerState() != 0 && px >= 12 * d && px <= panW - 12 * d && py >= 232 * d && py <= 272 * d) return M_SPECTRUM;
         return M_NONE;
@@ -765,7 +781,7 @@ public class BobPanel extends View {
                     onButton(mode - M_BTN);
                 } else if (mode == M_DRAWER && hit(x, y) == M_DRAWER) {
                     sounds.beep();
-                    drawerOpen = true;
+                    drawerOpen = !drawerOpen;
                 } else if (mode == M_DRAWER_CLOSE && hit(x, y) == M_DRAWER_CLOSE) {
                     sounds.beep();
                     drawerOpen = false;
@@ -948,20 +964,18 @@ public class BobPanel extends View {
         c.drawRoundRect(r, 10.7f * d, 10.7f * d, p);
 
         drawSky(c);
-        drawStripRect(c, stripA, 139, 50, 226, 226);   // faixa dos botões (gaveta)
+        drawStripRect(c, stripA, 139, 50, 183, 226);   // coluna do meio
+        drawStripRect(c, stripA, 186, 50, 226, 226);   // coluna da direita
         drawStripRect(c, stripC, 12, 232, 220, 272);   // analisador de espectro
         drawStripRect(c, stripB, 12, 278, 220, 342);   // player
         drawSpectrum(c);
         drawKnob(c, 0, volume, "VOL", 0xFF4F6BFF);
         drawKnob(c, 1, brightness, "BRI", 0xFFFFA833);
         drawClock(c);
-        if (drawerOpen) { // gaveta aberta: os 6 botões
-            for (int i = 0; i < BUTTONS; i++) drawButton(c, i);
-            drawDrawerHandle(c);
-        } else {          // gaveta fechada: só a gaveta e a lista da TV
-            drawBigButton(c, 182 * d, 102 * d, 0xFFE8A33D, "GAVETA", 0);
-            drawBigButton(c, 182 * d, 180 * d, 0xFF35C9E0, "TV LISTA", 1);
-        }
+        if (drawerOpen) drawDrawer(c);
+        else for (int i = 0; i < BUTTONS; i++) if (!inDrawer(i)) drawButton(c, i);
+        drawBigButton(c, 111 * d, 164 * d, 0xFF35C9E0, "TV LISTA", 1);   // botãozinho da TV
+        drawBigButton(c, 111 * d, 200 * d, 0xFFE8A33D, "GAVETA", 0);     // botãozinho da gaveta
         drawMusic(c);
         drawSignature(c);
     }
@@ -1307,7 +1321,7 @@ public class BobPanel extends View {
 
     /** Botão grande da faixa (gaveta e TV LISTA). */
     private void drawBigButton(Canvas c, float cx, float cy, int ring, String label, int kind) {
-        float ringR = 21 * d, capR = 17 * d;
+        float ringR = 14 * d, capR = 11 * d;
         c.save();
         c.translate(cx, cy);
         p.setShader(null);
@@ -1320,8 +1334,9 @@ public class BobPanel extends View {
         c.drawCircle(0, 0, ringR - 1.4f * d, p);
         dst.set(-capR, -capR, capR, capR);
         c.drawBitmap(capBig, null, dst, uiPaint);
+        c.scale(0.62f, 0.62f); // o desenho foi feito pra um botão maior
         p.setStrokeCap(Paint.Cap.ROUND);
-        p.setStrokeWidth(2.6f * d);
+        p.setStrokeWidth(3.2f * d);
         p.setColor(0xFFEFE6CC);
         if (kind == 0) { // gaveta: caixa com puxador
             r.set(-9 * d, -7 * d, 9 * d, 7 * d);
@@ -1335,7 +1350,25 @@ public class BobPanel extends View {
             c.drawLine(0, -5 * d, 5 * d, -10 * d, p);
         }
         c.restore();
-        drawIridescent(c, label, cx, cy + ringR + 12 * d, 9.5f * d);
+        drawIridescent(c, label, cx, cy + ringR + 10 * d, 8.5f * d);
+    }
+
+    /** Gaveta aberta: cobre as duas colunas e mostra só os botões que você escolheu pra ela. */
+    private void drawDrawer(Canvas c) {
+        drawStripRect(c, stripA, 139, 50, 226, 226);
+        p.setShader(null);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(1.6f * d);
+        p.setColor(0xFFE8A33D);
+        r.set(139 * d, 50 * d, 226 * d, 226 * d);
+        c.drawRoundRect(r, 9 * d, 9 * d, p);
+        boolean any = false;
+        for (int i = 0; i < BUTTONS; i++) if (inDrawer(i)) { drawButton(c, i); any = true; }
+        drawDrawerHandle(c);
+        if (!any) {
+            drawIridescent(c, "vazia", 182 * d, 122 * d, 10 * d);
+            drawIridescent(c, "escolha em \u25A6", 182 * d, 138 * d, 8.5f * d);
+        }
     }
 
     /** Setinha no alto da faixa, pra fechar a gaveta. */
