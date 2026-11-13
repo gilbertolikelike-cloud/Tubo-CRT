@@ -76,11 +76,11 @@
  },
  "duck": {
   "file": "bob_duck.png",
-  "cols": 9,
-  "rows": 8,
-  "frames": 72,
-  "ms": 66.5,
-  "aspect": 0.8658,
+  "cols": 8,
+  "rows": 6,
+  "frames": 48,
+  "ms": 100.0,
+  "aspect": 0.8191,
   "scale": 1.15,
   "blend": false
  },
@@ -140,10 +140,10 @@
  },
  "tv": {
   "file": "tv_frame.png",
-  "sl": 0.1188,
-  "st": 0.0756,
-  "sr": 0.8812,
-  "sb": 0.684,
-  "aspect": 1.0185
+  "sl": 0.114,
+  "st": 0.0724,
+  "sr": 0.881,
+  "sb": 0.6881,
+  "aspect": 1.0194
  }
 }

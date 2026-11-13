@@ -103,7 +103,8 @@ final class Familiar {
         private final RectF r = new RectF(), dst = new RectF();
         private final Rect src = new Rect();
         private final List<Spark> sparks = new ArrayList<>();
-        private final ArrayList<float[]> trail = new ArrayList<>(); // x, y, tempo: rastro verde da espada
+        private final ArrayList<float[]> trail = new ArrayList<>(); // x, y, tempo, ângulo: rastro verde da espada
+        private final float[] bladeX = new float[128], bladeY = new float[128];
         private volatile SpriteSheet swordSheet, trailSheet, duckSheet, alucardSheet;
         private volatile Verses verses;
         private volatile boolean released;
@@ -669,7 +670,7 @@ final class Familiar {
 
         /** Guarda onde a espada passou, pro rastro verde (só quando ela está rápida). */
         private void updateTrail() {
-            if (Math.hypot(svx, svy) > 90 * d) trail.add(new float[]{sx, sy + bobNow(), t});
+            if (Math.hypot(svx, svy) > 90 * d) trail.add(new float[]{sx, sy + bobNow(), t, ang});
             while (!trail.isEmpty() && t - trail.get(0)[2] > 0.4f) trail.remove(0);
             if (duelOn && duelPhase == 1) trail2.add(new float[]{nx, ny, t});
             while (!trail2.isEmpty() && t - trail2.get(0)[2] > 0.4f) trail2.remove(0);
@@ -694,7 +695,7 @@ final class Familiar {
                 drawClash(c);
                 drawBubble(c);
             }
-            postInvalidateDelayed(33); // ~30 quadros por segundo
+            postInvalidateOnAnimation(); // acompanha a tela: 50 a 60 quadros por segundo
         }
 
         private void drawAlucard(Canvas c) {
@@ -725,33 +726,59 @@ final class Familiar {
             c.restore();
         }
 
-        /** Rastro verde: faixa que some atrás da espada e, na estocada, o rastro do jogo (do arquivo "sprite ataque espada"). */
+        /** Rastro verde: faixa que afina até sumir, 3 cópias fantasma da espada e, na estocada, o rastro do arquivo "sprite ataque espada". */
         private void drawTrail(Canvas c) {
-            p.setStyle(Paint.Style.STROKE);
-            p.setStrokeCap(Paint.Cap.ROUND);
-            float[] prev = null;
-            for (float[] pt : trail) {
-                if (prev != null) {
-                    float life = Math.max(0f, 1f - (t - pt[2]) / 0.4f);
-                    p.setStrokeWidth(16 * d);
-                    p.setColor(Color.argb((int) (55 * life), 60, 255, 110));
-                    c.drawLine(prev[0], prev[1], pt[0], pt[1], p);
-                    p.setStrokeWidth(7 * d);
-                    p.setColor(Color.argb((int) (150 * life), 124, 255, 138));
-                    c.drawLine(prev[0], prev[1], pt[0], pt[1], p);
-                    p.setStrokeWidth(2.2f * d);
-                    p.setColor(Color.argb((int) (230 * life), 239, 255, 234));
-                    c.drawLine(prev[0], prev[1], pt[0], pt[1], p);
+            int n = Math.min(trail.size(), 128);
+            float off = 0.19f * swordLen(); // o rastro sai do meio da LÂMINA (a parte azul), não do cabo
+            for (int i = 0; i < n; i++) {
+                float[] e = trail.get(i);
+                double rad = Math.toRadians(e[3]);
+                bladeX[i] = e[0] - (float) Math.sin(rad) * off;
+                bladeY[i] = e[1] + (float) Math.cos(rad) * off;
+            }
+            if (n >= 2) {
+                for (int layer = 0; layer < 3; layer++) { // 3 camadas de brilho, da mais larga e fraca à mais fina e forte
+                    float maxW = (layer == 0 ? 17f : layer == 1 ? 9f : 3.2f) * d;
+                    int col = layer == 0 ? Color.argb(55, 60, 255, 110) : layer == 1 ? Color.argb(130, 124, 255, 138) : Color.argb(220, 239, 255, 234);
+                    path.reset();
+                    for (int i = 0; i < n; i++) { // lado esquerdo, da ponta do rastro até a lâmina
+                        int nxt = Math.min(n - 1, i + 1), prv = Math.max(0, i - 1);
+                        float vx = bladeX[nxt] - bladeX[prv], vy = bladeY[nxt] - bladeY[prv], len = Math.max(0.001f, (float) Math.hypot(vx, vy));
+                        float half = maxW * Math.max(0f, 1f - (t - trail.get(i)[2]) / 0.4f) * 0.5f;
+                        float px = bladeX[i] - vy / len * half, py = bladeY[i] + vx / len * half;
+                        if (i == 0) path.moveTo(px, py); else path.lineTo(px, py);
+                    }
+                    for (int i = n - 1; i >= 0; i--) { // lado direito, de volta
+                        int nxt = Math.min(n - 1, i + 1), prv = Math.max(0, i - 1);
+                        float vx = bladeX[nxt] - bladeX[prv], vy = bladeY[nxt] - bladeY[prv], len = Math.max(0.001f, (float) Math.hypot(vx, vy));
+                        float half = maxW * Math.max(0f, 1f - (t - trail.get(i)[2]) / 0.4f) * 0.5f;
+                        path.lineTo(bladeX[i] + vy / len * half, bladeY[i] - vx / len * half);
+                    }
+                    path.close();
+                    p.setStyle(Paint.Style.FILL);
+                    p.setColor(col);
+                    c.drawPath(path, p);
                 }
-                prev = pt;
+                // pós-imagem: cópias translúcidas da espada nas posições de 0,05 s, 0,10 s e 0,15 s atrás
+                float[] ages = {0.05f, 0.10f, 0.15f};
+                float[] alphas = {0.42f, 0.24f, 0.11f};
+                for (int g = 0; g < ages.length; g++) {
+                    float[] best = null;
+                    float bestErr = 0.03f;
+                    for (float[] e : trail) {
+                        float err = Math.abs((t - e[2]) - ages[g]);
+                        if (err < bestErr) { bestErr = err; best = e; }
+                    }
+                    if (best != null) drawSwordAt(c, best[0], best[1], best[3], alphas[g], 1f);
+                }
             }
             SpriteSheet s = trailSheet;
             if (state == STRIKE && s != null) { // o rastro do ataque: a ponta (linha branca) fica na espada
                 s.frame(src, 0); // 1º tom (nível 1 a 49); os outros tons são dos níveis maiores
-                float len = 190 * d, hh = len / s.aspect;
-                float fade = Math.max(0f, 1f - traveled / (STRIKE_DIST_DP * d) * 0.6f);
+                float len = 150 * d, hh = len / s.aspect;
+                float fade = 0.85f * Math.max(0f, 1f - traveled / (STRIKE_DIST_DP * d) * 0.6f);
                 c.save();
-                c.translate(sx, sy);
+                c.translate(sx + dirX * 0.19f * swordLen(), sy + dirY * 0.19f * swordLen()); // na lâmina
                 c.rotate((float) Math.toDegrees(Math.atan2(dirY, dirX)));
                 dst.set(-len + 14 * d, -hh / 2f, 14 * d, hh / 2f);
                 bmp.setAlpha((int) (255 * fade));
@@ -763,17 +790,21 @@ final class Familiar {
 
         /** A espada de pixel art do jogo (modelo do nível 1 a 49). Sem brilho em volta. */
         private void drawSword(Canvas c) {
+            float appear = Math.min(1f, t / 0.6f); // nasce pequena e o brilho some em 0,6 s
+            drawSwordAt(c, sx, sy + bobNow(), ang, appear, 0.4f + 0.6f * appear);
+        }
+
+        private void drawSwordAt(Canvas c, float x, float y, float angle, float alpha, float scale) {
             SpriteSheet s = swordSheet;
             if (s == null) return;
             s.frame(src, 0);
             float hh = swordLen() / s.sh, ww = hh * s.aspect;
             c.save();
-            c.translate(sx, sy + bobNow());
-            c.rotate(ang);
-            float appear = Math.min(1f, t / 0.6f); // nasce pequena e some o brilho em 0,6 s
-            c.scale(0.4f + 0.6f * appear, 0.4f + 0.6f * appear);
+            c.translate(x, y);
+            c.rotate(angle);
+            c.scale(scale, scale);
             dst.set(-s.ax * ww, -s.ay * hh, (1f - s.ax) * ww, (1f - s.ay) * hh);
-            bmp.setAlpha((int) (255 * appear));
+            bmp.setAlpha((int) (255 * Math.max(0f, Math.min(1f, alpha))));
             c.drawBitmap(s.bitmap, src, dst, bmp);
             bmp.setAlpha(255);
             c.restore();

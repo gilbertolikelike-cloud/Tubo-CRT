@@ -287,6 +287,7 @@ public class MainActivity extends Activity {
         addRow(slider("Chiado de TV na música (0 = desligado)", "tv_noise", 0, 100, 0, "%"));
         addRow(slider("Tamanho do painel (%)", "panel_scale", 50, 100, 80, "%"));
         addRow(slider("Tamanho da letra do versículo", "verse_size", 10, 26, 14, ""));
+        addRow(slider("Escuridão do céu do painel (%)", "sky_dark", 0, 60, 22, "%"));
         applyRowSizes();
         refresh();
         final int y = keep;

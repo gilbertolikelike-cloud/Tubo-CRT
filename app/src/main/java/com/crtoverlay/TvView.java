@@ -74,10 +74,11 @@ final class TvView extends FrameLayout {
 
     // controles
     private boolean controlsOn, listOn, foldersTab;
+    private int fillMode; // 0 = preencher a TV toda (corta as pontas), 1 = esticar, 2 = ajustar (faixas pretas)
     private float gl, gt, gr, gb, u, listScroll, listScrollStart;
     private final RectF rClose = new RectF(), rList = new RectF(), rShuffle = new RectF(), rPrev = new RectF(),
             rPlay = new RectF(), rNext = new RectF(), rSeek = new RectF(), rSeekHit = new RectF(),
-            rListArea = new RectF(), rTabV = new RectF(), rTabF = new RectF();
+            rListArea = new RectF(), rTabV = new RectF(), rTabF = new RectF(), rAspect = new RectF();
 
     // gestos
     private int mode, corner, startX, startY, startW, startH;
@@ -105,6 +106,7 @@ final class TvView extends FrameLayout {
         screenW = dm.widthPixels;
         screenH = dm.heightPixels;
         setWillNotDraw(false);
+        fillMode = sp.getInt("tv_fill", 0);
         tp.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         loadFrame();
 
@@ -157,6 +159,16 @@ final class TvView extends FrameLayout {
         } catch (IOException | org.json.JSONException | RuntimeException ignored) {
             frame = null; // sem a moldura, só aparece o vídeo
         }
+    }
+
+    /** Abre a TV já na lista de playlists (pastas), pra escolher uma. */
+    void openList() {
+        listOn = true;
+        foldersTab = true;
+        controlsOn = true;
+        listScroll = 0f;
+        handler.removeCallbacks(hideControls);
+        invalidate();
     }
 
     // ---------- playlist e vídeo ----------
@@ -257,8 +269,16 @@ final class TvView extends FrameLayout {
         fitFor = lp.width;
         if (vw <= 0 || vh <= 0) return;
         float gw = (sr - sl) * lp.width, gh = (sb - st) * lp.height;
-        float sc = Math.min(gw / vw, gh / vh);
-        tex.setLayoutParams(new FrameLayout.LayoutParams(Math.round(vw * sc), Math.round(vh * sc), Gravity.CENTER));
+        int tw, th;
+        if (fillMode == 1) {
+            tw = Math.round(gw);
+            th = Math.round(gh);
+        } else {
+            float sc = fillMode == 0 ? Math.max(gw / vw, gh / vh) : Math.min(gw / vw, gh / vh);
+            tw = Math.round(vw * sc);
+            th = Math.round(vh * sc);
+        }
+        tex.setLayoutParams(new FrameLayout.LayoutParams(tw, th, Gravity.CENTER)); // o vidro corta o que passar
     }
 
     // ---------- medidas ----------
@@ -302,6 +322,7 @@ final class TvView extends FrameLayout {
         rPrev.set(cx - 56 * u - bs, cy - bs, cx - 56 * u + bs, cy + bs);
         rNext.set(cx + 56 * u - bs, cy - bs, cx + 56 * u + bs, cy + bs);
         rShuffle.set(gl + 6 * u, cy - bs, gl + 6 * u + 2 * bs, cy + bs);
+        rAspect.set(gr - 6 * u - 2 * bs, cy - bs, gr - 6 * u, cy + bs);
         rSeek.set(gl + 44 * u, gb - 62 * u, gr - 44 * u, gb - 50 * u);
         rSeekHit.set(rSeek.left - 10 * u, rSeek.top - 12 * u, rSeek.right + 10 * u, rSeek.bottom + 12 * u);
         rListArea.set(gl, gt + 34 * u, gr, gb - 78 * u);
@@ -389,6 +410,13 @@ final class TvView extends FrameLayout {
         c.drawLine(sx - 9 * u, sy - 6 * u, sx + 9 * u, sy + 6 * u, p);
         c.drawLine(sx + 9 * u, sy - 6 * u, sx + 4 * u, sy - 6 * u, p);
         c.drawLine(sx + 9 * u, sy + 6 * u, sx + 4 * u, sy + 6 * u, p);
+        // tela cheia: quatro cantinhos
+        p.setColor(0xFFFFFFFF);
+        float ax = rAspect.centerX(), ay = rAspect.centerY(), q = 8 * u, k = 4.5f * u;
+        c.drawLine(ax - q, ay - q + k, ax - q, ay - q, p); c.drawLine(ax - q, ay - q, ax - q + k, ay - q, p);
+        c.drawLine(ax + q - k, ay - q, ax + q, ay - q, p); c.drawLine(ax + q, ay - q, ax + q, ay - q + k, p);
+        c.drawLine(ax - q, ay + q - k, ax - q, ay + q, p); c.drawLine(ax - q, ay + q, ax - q + k, ay + q, p);
+        c.drawLine(ax + q - k, ay + q, ax + q, ay + q, p); c.drawLine(ax + q, ay + q, ax + q, ay + q - k, p);
         c.restore();
     }
 
@@ -555,6 +583,14 @@ final class TvView extends FrameLayout {
         if (rClose.contains(x, y)) { callback.onClose(); return; }
         if (rList.contains(x, y)) { listOn = !listOn; foldersTab = false; listScroll = 0f; invalidate(); return; }
         if (rShuffle.contains(x, y)) { shuffle = !shuffle; invalidate(); return; }
+        if (rAspect.contains(x, y)) { // preencher, esticar ou ajustar
+            fillMode = (fillMode + 1) % 3;
+            sp.edit().putInt("tv_fill", fillMode).apply();
+            fit(videoW, videoH);
+            Toast.makeText(ctx, new String[]{"Preencher a TV", "Esticar", "Ajustar (com faixas pretas)"}[fillMode], Toast.LENGTH_SHORT).show();
+            invalidate();
+            return;
+        }
         if (rPrev.contains(x, y)) { previous(); return; }
         if (rPlay.contains(x, y)) { togglePause(); return; }
         if (rNext.contains(x, y)) { next(false); return; }
@@ -569,8 +605,10 @@ final class TvView extends FrameLayout {
             String tree = foldersNow().get(i);
             foldersTab = false;
             listScroll = 0f;
+            listOn = false; // escolheu a playlist: fecha a lista e já toca
             open(tree, 0);
         } else {
+            listOn = false;
             play(i);
         }
     }

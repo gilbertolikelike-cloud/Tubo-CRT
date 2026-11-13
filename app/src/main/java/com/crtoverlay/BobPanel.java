@@ -68,9 +68,9 @@ public class BobPanel extends View {
     private static final int M_TRANSPORT = 10; // 10..12 = anterior, tocar/pausar, próxima
     private static final String[] BUTTON_LABEL = {"FOTO", "APAGAR", "RAM", "MAX", "PARAR", "GELO"};
     private static final int[] BUTTON_RING = {0xFF2EAD5B, 0xFFD94040, 0xFF4F6BFF, 0xFFFFC107, 0xFFFF7043, 0xFF4FC3F7};
-    private static final int M_SPECTRUM = 13;
+    private static final int M_SPECTRUM = 13, M_DRAWER = 20, M_TVLIST = 21, M_DRAWER_CLOSE = 22;
     /** Posição dos 6 botões (dp), na ordem FOTO, APAGAR, RAM, MAX, PARAR, GELO. Coluna da direita (de cima pra baixo): APAGAR, FOTO, MAX. Coluna do meio: PARAR, GELO, RAM. */
-    private static final float[] BTN_X = {204, 204, 160, 204, 160, 160}, BTN_Y = {136, 78, 194, 194, 78, 136};
+    private static final float[] BTN_X = {204, 204, 160, 204, 160, 160}, BTN_Y = {142, 92, 192, 192, 92, 142};
     private static final float RAINBOW_LEN = 120f;
     private static final long AUTO_CLOSE_MS = 10000;
     private static final float PANEL_W_DP = 232f, PANEL_H_DP = 360f, BORDER_DP = 6f;
@@ -103,6 +103,7 @@ public class BobPanel extends View {
     private float d, panW, panH;              // escala do painel (densidade x tamanho escolhido) e tamanho em px
     private final UiSounds sounds;
     private float tickAccum;
+    private boolean drawerOpen; // a gaveta com os 6 botões
     private Runnable activityListener;
     private BitmapShader woodShader;
     private Bitmap woodBitmap;
@@ -697,7 +698,13 @@ public class BobPanel extends View {
         if (anim < 0.5f) return M_NONE;
         float px = x - (panX - winX), py = y - (panY - winY);
         for (int i = 0; i < 2; i++) if (Math.hypot(px - knobX(i), py - knobY(i)) < 38 * d) return i == 0 ? M_VOL : M_BRI;
-        for (int i = 0; i < BUTTONS; i++) if (Math.hypot(px - buttonX(i), py - buttonY(i)) < 20 * d) return M_BTN + i;
+        if (drawerOpen) {
+            for (int i = 0; i < BUTTONS; i++) if (Math.hypot(px - buttonX(i), py - buttonY(i)) < 20 * d) return M_BTN + i;
+            if (Math.hypot(px - 182 * d, py - 62 * d) < 16 * d) return M_DRAWER_CLOSE;
+        } else {
+            if (Math.hypot(px - 182 * d, py - 102 * d) < 26 * d) return M_DRAWER;
+            if (Math.hypot(px - 182 * d, py - 180 * d) < 26 * d) return M_TVLIST;
+        }
         for (int i = 0; i < 3; i++) if (Math.hypot(px - transportX(i), py - transportY()) < 22 * d) return M_TRANSPORT + i;
         if (music.analyzerState() != 0 && px >= 12 * d && px <= panW - 12 * d && py >= 232 * d && py <= 272 * d) return M_SPECTRUM;
         return M_NONE;
@@ -756,6 +763,15 @@ public class BobPanel extends View {
                     onTransport(mode - M_TRANSPORT);
                 } else if (mode >= M_BTN && mode < M_TRANSPORT && hit(x, y) == mode) {
                     onButton(mode - M_BTN);
+                } else if (mode == M_DRAWER && hit(x, y) == M_DRAWER) {
+                    sounds.beep();
+                    drawerOpen = true;
+                } else if (mode == M_DRAWER_CLOSE && hit(x, y) == M_DRAWER_CLOSE) {
+                    sounds.beep();
+                    drawerOpen = false;
+                } else if (mode == M_TVLIST && hit(x, y) == M_TVLIST) {
+                    sounds.beep();
+                    openTvList();
                 } else if (mode == M_SPECTRUM && hit(x, y) == M_SPECTRUM) {
                     onSpectrumTap();
                 }
@@ -769,6 +785,20 @@ public class BobPanel extends View {
                 return true;
             default:
                 return true;
+        }
+    }
+
+    /** TV LISTA: abre a TV já na lista de playlists (pastas), sem precisar abrir o app. */
+    private void openTvList() {
+        if (TvLibrary.folders(sp).isEmpty()) {
+            Toast.makeText(ctx, "Adicione uma pasta de vídeos em ▦ → TV de vídeo", Toast.LENGTH_LONG).show();
+            return;
+        }
+        setOpen(false, true);
+        try {
+            ctx.startForegroundService(new Intent(ctx, TvService.class).setAction(TvService.ACTION_PLAY).putExtra("list", true));
+        } catch (RuntimeException e) {
+            Toast.makeText(ctx, "Não consegui abrir a TV agora", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -901,6 +931,7 @@ public class BobPanel extends View {
             matrix.postTranslate(r.left + (r.width() - paperBitmap.getWidth() * sc) / 2f, r.top + (r.height() - paperBitmap.getHeight() * sc) / 2f);
             plate.setLocalMatrix(matrix);
             p.setColor(0xFFFFFFFF);
+            p.setFilterBitmap(true); // sem isso a textura aparece quadriculada
             p.setShader(plate);
             c.drawRoundRect(r, 10 * d, 10 * d, p);
             p.setShader(null);
@@ -917,15 +948,20 @@ public class BobPanel extends View {
         c.drawRoundRect(r, 10.7f * d, 10.7f * d, p);
 
         drawSky(c);
-        drawStripRect(c, stripA, 139, 50, 183, 226);   // coluna MAX / PARAR / GELO
-        drawStripRect(c, stripA, 186, 50, 226, 226);   // coluna FOTO / APAGAR / RAM
+        drawStripRect(c, stripA, 139, 50, 226, 226);   // faixa dos botões (gaveta)
         drawStripRect(c, stripC, 12, 232, 220, 272);   // analisador de espectro
         drawStripRect(c, stripB, 12, 278, 220, 342);   // player
         drawSpectrum(c);
         drawKnob(c, 0, volume, "VOL", 0xFF4F6BFF);
         drawKnob(c, 1, brightness, "BRI", 0xFFFFA833);
         drawClock(c);
-        for (int i = 0; i < BUTTONS; i++) drawButton(c, i);
+        if (drawerOpen) { // gaveta aberta: os 6 botões
+            for (int i = 0; i < BUTTONS; i++) drawButton(c, i);
+            drawDrawerHandle(c);
+        } else {          // gaveta fechada: só a gaveta e a lista da TV
+            drawBigButton(c, 182 * d, 102 * d, 0xFFE8A33D, "GAVETA", 0);
+            drawBigButton(c, 182 * d, 180 * d, 0xFF35C9E0, "TV LISTA", 1);
+        }
         drawMusic(c);
         drawSignature(c);
     }
@@ -989,6 +1025,11 @@ public class BobPanel extends View {
             dst.set(left, top, right, bottom);
             bobPaint.setAlpha(255);
             c.drawBitmap(skySheet, src, dst, bobPaint);
+            if (night < 0.5f) { // capa escura sobre o céu do dia (ajuste em ▦; padrão 22%)
+                p.setColor(Math.round(Math.max(0, Math.min(60, sp.getInt("sky_dark", 22))) * 2.55f) << 24);
+                c.drawRect(left, top, right, bottom, p);
+                p.setColor(0xFFFFFFFF);
+            }
             if (kind >= Weather.RAIN) { // chuva escurece o céu
                 p.setColor(0x80303642);
                 c.drawRect(left, top, right, bottom, p);
@@ -1262,6 +1303,57 @@ public class BobPanel extends View {
         c.restore();
         // nome embaixo do botão
         drawIridescent(c, label + " " + Math.round(v * 100) + "%", cx, cy + 37 * d + 12 * d, 11 * d);
+    }
+
+    /** Botão grande da faixa (gaveta e TV LISTA). */
+    private void drawBigButton(Canvas c, float cx, float cy, int ring, String label, int kind) {
+        float ringR = 21 * d, capR = 17 * d;
+        c.save();
+        c.translate(cx, cy);
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xFF050505);
+        c.drawCircle(0, 0, ringR, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(2.8f * d);
+        p.setColor(ring);
+        c.drawCircle(0, 0, ringR - 1.4f * d, p);
+        dst.set(-capR, -capR, capR, capR);
+        c.drawBitmap(capBig, null, dst, uiPaint);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeWidth(2.6f * d);
+        p.setColor(0xFFEFE6CC);
+        if (kind == 0) { // gaveta: caixa com puxador
+            r.set(-9 * d, -7 * d, 9 * d, 7 * d);
+            c.drawRoundRect(r, 2 * d, 2 * d, p);
+            c.drawLine(-9 * d, -1 * d, 9 * d, -1 * d, p);
+            c.drawLine(-3 * d, 3.5f * d, 3 * d, 3.5f * d, p);
+        } else {         // TV: tela com antenas
+            r.set(-9 * d, -5 * d, 9 * d, 8 * d);
+            c.drawRoundRect(r, 3 * d, 3 * d, p);
+            c.drawLine(0, -5 * d, -5 * d, -10 * d, p);
+            c.drawLine(0, -5 * d, 5 * d, -10 * d, p);
+        }
+        c.restore();
+        drawIridescent(c, label, cx, cy + ringR + 12 * d, 9.5f * d);
+    }
+
+    /** Setinha no alto da faixa, pra fechar a gaveta. */
+    private void drawDrawerHandle(Canvas c) {
+        float cx = 182 * d, cy = 62 * d;
+        p.setShader(null);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xFF050505);
+        c.drawCircle(cx, cy, 12 * d, p);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(2f * d);
+        p.setColor(0xFFE8A33D);
+        c.drawCircle(cx, cy, 11 * d, p);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeWidth(2.4f * d);
+        p.setColor(0xFFEFE6CC);
+        c.drawLine(cx - 5 * d, cy + 2 * d, cx, cy - 3 * d, p);
+        c.drawLine(cx, cy - 3 * d, cx + 5 * d, cy + 2 * d, p);
     }
 
     private void drawButton(Canvas c, int i) {

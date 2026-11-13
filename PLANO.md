@@ -87,3 +87,16 @@ Tudo que ele mandou está em `referencias/` (gifs, folhas de sprites, os 2 model
 - 3 modos: Alvo único, Multi alvos e OCR (lê texto da tela com ML Kit e clica). Kotlin, minSdk 29, ML Kit text-recognition 16.0.1 (modelo embutido, ~50 MB), captura de tela com MediaProjection, serviço de acessibilidade próprio.
 - Pedido: virar o 3º painel do Bob, sem a interface do app (MainActivity, PageActivity, Ui), com as 3 opções como botões no painel. Fazer só depois da TV.
 - Pontos a resolver: o projeto do Tubo-CRT é Java (precisa do plugin Kotlin), o serviço de acessibilidade precisa ser um só (juntar com o CrtAccessService), permissão de captura de tela, e o APK passa de ~45 MB pra ~100 MB.
+
+
+## Atualização 4 (depois de testar a TV)
+- TV: vídeo agora PREENCHE o vidro (corta as pontas). Botão de 4 cantinhos nos controles troca entre Preencher, Esticar e Ajustar (com faixas pretas); a escolha fica salva (tv_fill). Moldura nova em alta qualidade (foto Anime4K).
+- Painel: faixa dos botões agora tem só GAVETA e TV LISTA. A gaveta abre e mostra os 6 botões (APAGAR, FOTO, MAX, PARAR, GELO, RAM); a setinha no alto fecha. TV LISTA abre a TV já na aba Pastas (playlists), escolhe e toca sem abrir o app. Espaço pra futuros botões na faixa (medalhas, os 3 modos do OCR Auto Clicker).
+- Fundo do painel sem quadriculado (filtro bilinear no shader).
+- Ícone do app: só a TV, sem fundo preto (cor de fundo do ícone adaptativo agora é transparente).
+- Pato que dança com a música: gif novo (duck-dance.gif), fundo removido, 48 quadros.
+- Espada e pato a 50-60 fps (postInvalidateOnAnimation). Rastro da espada: faixa afunilada em 3 camadas verdes + 3 cópias fantasma (pós-imagem, como no PDF do ataque de profundidade) + o rastro do arquivo na estocada.
+
+## Atualização 5
+- Céu do dia com capa escura (padrão 22%, slider "Escuridão do céu do painel" em ▦, de 0 a 60%).
+- Rastro da espada sai do meio da LÂMINA (a parte azul), nunca do cabo, como no gif do jogo (2026_11_13_12_59_53.gif). O rastro do Alucard que aparece no gif NÃO é usado.

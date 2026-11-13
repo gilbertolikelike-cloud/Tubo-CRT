@@ -42,7 +42,9 @@ public class TvService extends Service {
                 return START_NOT_STICKY;
             }
         }
-        view.open(intent.getStringExtra("folder"), intent.getIntExtra("index", 0));
+        if (intent.getBooleanExtra("list", false)) view.openList(); // TV LISTA do painel
+        String folder = intent.getStringExtra("folder");
+        if (folder != null) view.open(folder, intent.getIntExtra("index", 0));
         return START_NOT_STICKY;
     }
 
