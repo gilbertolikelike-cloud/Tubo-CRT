@@ -61,3 +61,29 @@ Tudo que ele mandou está em `referencias/` (gifs, folhas de sprites, os 2 model
 - TV Philco de vídeo (pasta como lista de reprodução, redimensionar pelas quinas, olho de peixe com plano B). A moldura sai de `7_Sem_Título_20261106171530.png`.
 - Respostas ainda não dadas: chance dos patos raros (RGB e ouro) e como sortear as medalhas de versículo.
 - Rodada N = N patos na tela (ideia: ondas, tipos misturados, no máximo ~12 ao mesmo tempo).
+
+
+## Atualização 3
+### Feito nesta versão
+- TV Philco de vídeo: moldura com vidro vazado, playlist por pasta (pastas salvas em ▦ > "TV de vídeo"), controles (tocar/pausar, anterior, próximo, embaralhar, barra de progresso), lista de vídeos e de pastas dentro da própria TV, mover arrastando e redimensionar pelas 4 quinas. Arquivos: TvService, TvView, TvLibrary. FALTA: olho de peixe (precisa de OpenGL; deixado de fora pra não arriscar a TV não abrir).
+- Painel: nomes embaixo dos botões, texto e botões maiores, fundo barroco (parchment.jpg), céu do dia = gif do sol nascendo. Bug corrigido: a cor dos nomes sumia depois de um tempo (deslocamento do shader sem módulo).
+- Espada solta: aparece em qualquer lugar da tela; rastro alinhado; ricochete nas bordas; erra de forma aleatória (40% de erro de propósito, e o pato também pode sair da frente).
+- Versículos: o 1º sai no primeiro pato morto; os seguintes só depois de 5, 7, 10 e 10 min (10 min é o máximo). Tocar na tela acaba com a espada solta e tudo recomeça do zero.
+- Batalha da noite (19h às 6h): 10% das vezes em que um pato ia aparecer, a espada azul de raio entra e luta com a espada dos patos (4 rodadas: giram, disparam uma na outra, choque, recuo). Intervalo mínimo de 2 min entre batalhas.
+
+### Segundo ataque da espada: ATAQUE DE PROFUNDIDADE (só nível 70+) - PDF Logica_Ataque_Profundidade_Espada
+- Ilusão 2.5D: escala, camada (z-index), brilho e hitbox mudam juntos. Sem sprites novos, só scale/alpha da mesma imagem.
+- Variáveis: estado (SEGUINDO, RECUANDO_FUNDO, MERGULHANDO, IMPACTO), profundidadeZ (0 = perto, 1 = longe, 20% do tamanho), alvoX/alvoY, recuoX/recuoY, hitboxAtiva, timerImpacto.
+- SEGUINDO: acha o alvo, salva alvoX/alvoY, define o ponto de recuo (alvoX +- 80, alvoY - 70), hitbox desligada.
+- RECUANDO_FUNDO: profundidadeZ += 2.5*dt; vai pro ponto de recuo com lerp (5*dt); escala = 1 - Z*0.8; brilho = 1 - Z*0.55; com Z > 0.3 vai pra trás do cenário (z -1); aponta pro alvo; em Z >= 1 atualiza o alvo e vai pra MERGULHANDO.
+- MERGULHANDO: Z -= 7.5*dt (3x mais rápido); lerp até o alvo (14*dt); com Z < 0.3 volta pra frente (z +10); em Z <= 0 vai pra IMPACTO.
+- IMPACTO: escala 1.15 e volta a 1.0 (lerp 20*dt), hitbox ligada por 0.08 s, 2 ou 3 cópias translúcidas (50% e 25%) como pós-imagem (pool fixo de 3 posições). Acabou: se o alvo vive, volta ao RECUANDO_FUNDO sem pausa; se não, SEGUINDO.
+- Evolui com o nível mexendo só nos multiplicadores (2.5 recuo, 7.5 mergulho).
+
+### Ideia do Sol de Fogo (sun-14.gif, já em assets como fire_sun.png)
+- Pato Solar (raro): invoca o Sol de Fogo, que cai devagar e persegue a espada. A espada precisa desviar ou cortar o sol ao meio (corte certo = o pato perde vida e solta brasas). Se o sol encostar, tira corações. Chefe de fogo mais forte: o Sol cresce com o tempo.
+
+### OCR Auto Clicker (app do Gilberto, fonte em referencias/OcrAutoClicker.zip)
+- 3 modos: Alvo único, Multi alvos e OCR (lê texto da tela com ML Kit e clica). Kotlin, minSdk 29, ML Kit text-recognition 16.0.1 (modelo embutido, ~50 MB), captura de tela com MediaProjection, serviço de acessibilidade próprio.
+- Pedido: virar o 3º painel do Bob, sem a interface do app (MainActivity, PageActivity, Ui), com as 3 opções como botões no painel. Fazer só depois da TV.
+- Pontos a resolver: o projeto do Tubo-CRT é Java (precisa do plugin Kotlin), o serviço de acessibilidade precisa ser um só (juntar com o CrtAccessService), permissão de captura de tela, e o APK passa de ~45 MB pra ~100 MB.

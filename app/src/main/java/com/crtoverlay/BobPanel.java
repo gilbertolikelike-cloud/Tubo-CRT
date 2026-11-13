@@ -70,12 +70,12 @@ public class BobPanel extends View {
     private static final int[] BUTTON_RING = {0xFF2EAD5B, 0xFFD94040, 0xFF4F6BFF, 0xFFFFC107, 0xFFFF7043, 0xFF4FC3F7};
     private static final int M_SPECTRUM = 13;
     /** Posição dos 6 botões (dp), na ordem FOTO, APAGAR, RAM, MAX, PARAR, GELO. Coluna da direita (de cima pra baixo): APAGAR, FOTO, MAX. Coluna do meio: PARAR, GELO, RAM. */
-    private static final float[] BTN_X = {208, 208, 166, 208, 166, 166}, BTN_Y = {128, 80, 176, 176, 80, 128};
+    private static final float[] BTN_X = {204, 204, 160, 204, 160, 160}, BTN_Y = {136, 78, 194, 194, 78, 136};
     private static final float RAINBOW_LEN = 120f;
     private static final long AUTO_CLOSE_MS = 10000;
-    private static final float PANEL_W_DP = 232f, PANEL_H_DP = 344f, BORDER_DP = 6f;
+    private static final float PANEL_W_DP = 232f, PANEL_H_DP = 360f, BORDER_DP = 6f;
     private static final int BUTTONS = 6;
-    private static final float KNOB_R = 32f, BUTTON_R = 12f, TRANSPORT_R = 17f; // dp
+    private static final float KNOB_R = 32f, BUTTON_R = 15f, TRANSPORT_R = 17f; // dp
 
     // cor do céu ao longo do dia
     private static final float[] SKY_HOURS = {0f, 5f, 6.5f, 8f, 16f, 17.5f, 19f, 21f, 24f};
@@ -182,7 +182,7 @@ public class BobPanel extends View {
 
     /** (Re)cria tudo que depende do tamanho do painel: escala, gradientes e peças com textura. */
     private void buildAssets() {
-        d = dens * Math.max(0.5f, Math.min(1f, sp.getInt("panel_scale", 72) / 100f));
+        d = dens * Math.max(0.5f, Math.min(1f, sp.getInt("panel_scale", 80) / 100f));
         panW = PANEL_W_DP * d;
         panH = PANEL_H_DP * d;
         for (Bitmap b : new Bitmap[]{capBig, capSmall, capTransport, dialRing, woodBitmap}) if (b != null) b.recycle();
@@ -193,14 +193,14 @@ public class BobPanel extends View {
         iridescent = new LinearGradient(0, 0, 90 * d, 0, new int[]{0xFF00E5FF, 0xFF7C4DFF, 0xFFFF4DD2, 0xFFFFD54F, 0xFF69F0AE, 0xFF00E5FF},
                 null, Shader.TileMode.REPEAT);
         // faixas pretas embutidas: colunas dos botões (50..206), analisador (212..254) e player (260..324)
-        stripA = new LinearGradient(0, 50 * d, 0, 206 * d, 0xFF000000, 0xFF1C1C1C, Shader.TileMode.CLAMP);
-        stripC = new LinearGradient(0, 212 * d, 0, 254 * d, 0xFF000000, 0xFF1C1C1C, Shader.TileMode.CLAMP);
-        stripB = new LinearGradient(0, 260 * d, 0, 324 * d, 0xFF000000, 0xFF1C1C1C, Shader.TileMode.CLAMP);
+        stripA = new LinearGradient(0, 50 * d, 0, 226 * d, 0xFF000000, 0xFF1C1C1C, Shader.TileMode.CLAMP);
+        stripC = new LinearGradient(0, 232 * d, 0, 272 * d, 0xFF000000, 0xFF1C1C1C, Shader.TileMode.CLAMP);
+        stripB = new LinearGradient(0, 278 * d, 0, 342 * d, 0xFF000000, 0xFF1C1C1C, Shader.TileMode.CLAMP);
         // peças com textura, desenhadas uma vez só: tampas de metal serrilhado, aro preto com marcas e a madeira da moldura
-        capBig = makeCap(Math.round(48 * d));
-        capSmall = makeCap(Math.round(20 * d));
+        capBig = makeCap(Math.round(42 * d));
+        capSmall = makeCap(Math.round(24 * d));
         capTransport = makeCap(Math.round(26 * d));
-        dialRing = makeDial(Math.round(76 * d));
+        dialRing = makeDial(Math.round(68 * d));
         woodBitmap = makeWood(Math.max(32, Math.round(90 * d)));
         woodShader = new BitmapShader(woodBitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT);
         sunGlow = new RadialGradient(0, 0, 14 * d, 0x99FFE27A, 0x00FFE27A, Shader.TileMode.CLAMP);
@@ -684,22 +684,22 @@ public class BobPanel extends View {
     }
 
     // ---------- geometria das peças (dentro do painel, em px) ----------
-    private float knobX(int i) { return 62 * d; }
-    private float knobY(int i) { return (i == 0 ? 88 : 166) * d; }
+    private float knobX(int i) { return 48 * d; }
+    private float knobY(int i) { return (i == 0 ? 82 : 172) * d; }
     private float buttonX(int i) { return BTN_X[i] * d; }
     private float buttonY(int i) { return BTN_Y[i] * d; }
     private float transportX(int i) { return (PANEL_W_DP / 2f + (i - 1) * 52) * d; }
-    private float transportY() { return 303 * d; }
+    private float transportY() { return 321 * d; }
 
     private int hit(float x, float y) {
         float bl = bobX - winX, bt = bobY - winY;
         if (x >= bl && x <= bl + bobW && y >= bt && y <= bt + bobH) return M_BOB;
         if (anim < 0.5f) return M_NONE;
         float px = x - (panX - winX), py = y - (panY - winY);
-        for (int i = 0; i < 2; i++) if (Math.hypot(px - knobX(i), py - knobY(i)) < 40 * d) return i == 0 ? M_VOL : M_BRI;
-        for (int i = 0; i < BUTTONS; i++) if (Math.hypot(px - buttonX(i), py - buttonY(i)) < 17 * d) return M_BTN + i;
+        for (int i = 0; i < 2; i++) if (Math.hypot(px - knobX(i), py - knobY(i)) < 38 * d) return i == 0 ? M_VOL : M_BRI;
+        for (int i = 0; i < BUTTONS; i++) if (Math.hypot(px - buttonX(i), py - buttonY(i)) < 20 * d) return M_BTN + i;
         for (int i = 0; i < 3; i++) if (Math.hypot(px - transportX(i), py - transportY()) < 22 * d) return M_TRANSPORT + i;
-        if (music.analyzerState() != 0 && px >= 12 * d && px <= panW - 12 * d && py >= 212 * d && py <= 254 * d) return M_SPECTRUM;
+        if (music.analyzerState() != 0 && px >= 12 * d && px <= panW - 12 * d && py >= 232 * d && py <= 272 * d) return M_SPECTRUM;
         return M_NONE;
     }
 
@@ -917,10 +917,10 @@ public class BobPanel extends View {
         c.drawRoundRect(r, 10.7f * d, 10.7f * d, p);
 
         drawSky(c);
-        drawStripRect(c, stripA, 140, 50, 183, 206);   // coluna MAX / PARAR / GELO
-        drawStripRect(c, stripA, 186, 50, 225, 206);   // coluna FOTO / APAGAR / RAM
-        drawStripRect(c, stripC, 12, 212, 220, 254);   // analisador de espectro
-        drawStripRect(c, stripB, 12, 260, 220, 324);   // player
+        drawStripRect(c, stripA, 139, 50, 183, 226);   // coluna MAX / PARAR / GELO
+        drawStripRect(c, stripA, 186, 50, 226, 226);   // coluna FOTO / APAGAR / RAM
+        drawStripRect(c, stripC, 12, 232, 220, 272);   // analisador de espectro
+        drawStripRect(c, stripB, 12, 278, 220, 342);   // player
         drawSpectrum(c);
         drawKnob(c, 0, volume, "VOL", 0xFF4F6BFF);
         drawKnob(c, 1, brightness, "BRI", 0xFFFFA833);
@@ -1015,6 +1015,7 @@ public class BobPanel extends View {
         float y = bottom - 7 * d - (float) Math.sin(Math.PI * arc) * (bottom - top - 18 * d);
 
         if (day) {
+            if (skySheet == null) { // com o gif carregado, o sol é o do gif
             c.save();
             c.translate(x, y);
             p.setColor(0xFFFFFFFF);
@@ -1033,6 +1034,7 @@ public class BobPanel extends View {
             }
             p.setStyle(Paint.Style.FILL);
             c.restore();
+            }
         } else {
             p.setColor(0xFFF4F1DE);
             c.drawCircle(x, y, 6.5f * d, p);
@@ -1104,16 +1106,16 @@ public class BobPanel extends View {
         int m = now.get(Calendar.MINUTE);
         String time = h + ":" + (m < 10 ? "0" : "") + m;
         String period = now.get(Calendar.AM_PM) == Calendar.AM ? "AM" : "PM";
-        float cx = 122 * d;
-        if (Weather.hasData(sp)) drawIridescent(c, Math.round(Weather.temperature(sp)) + "\u00B0C", cx, 111 * d, 11 * d);
-        drawIridescent(c, time, cx, 131 * d, 13 * d);
-        drawIridescent(c, period, cx, 143 * d, 8.5f * d);
+        float cx = 111 * d;
+        if (Weather.hasData(sp)) drawIridescent(c, Math.round(Weather.temperature(sp)) + "\u00B0C", cx, 108 * d, 12 * d);
+        drawIridescent(c, time, cx, 128 * d, 15 * d);
+        drawIridescent(c, period, cx, 142 * d, 9.5f * d);
     }
 
     /** Texto furta-cor: as cores deslizam, com contorno escuro pra dar pra ler em cima do papel. */
     private void drawIridescent(Canvas c, String text, float x, float y, float size) {
         float t = (SystemClock.uptimeMillis() - t0) / 1000f;
-        iridescentMatrix.setTranslate(t * 38f * d, 0);
+        iridescentMatrix.setTranslate((t * 38f * d) % (90f * d), 0); // volta ao zero: sem isso a cor some depois de horas
         iridescent.setLocalMatrix(iridescentMatrix);
         p.setTextAlign(Paint.Align.CENTER);
         p.setTextSize(size);
@@ -1191,7 +1193,7 @@ public class BobPanel extends View {
     /** Analisador de espectro: 31 barras de LED verde com o pico em vermelho, mexendo com a música. */
     private void drawSpectrum(Canvas c) {
         music.snapshot(specLevel, specPeak);
-        float left = 18 * d, width = panW - 36 * d, top = 216 * d, bottom = 250 * d;
+        float left = 18 * d, width = panW - 36 * d, top = 236 * d, bottom = 268 * d;
         float slot = width / MusicPlayer.BANDS, barW = slot * 0.68f;
         int segs = 12;
         float segH = (bottom - top) / segs, gap = segH * 0.3f;
@@ -1218,7 +1220,7 @@ public class BobPanel extends View {
             }
         }
         int state = music.analyzerState();
-        if (state != 0) drawIridescent(c, state == 1 ? "analisador: libere o áudio em ▦" : "analisador desligado (▦)", panW / 2f, 236 * d, 7.5f * d);
+        if (state != 0) drawIridescent(c, state == 1 ? "analisador: libere o áudio em ▦" : "analisador desligado (▦)", panW / 2f, 254 * d, 8f * d);
     }
 
     /** Faixa preta embutida (fundo dos botões e do player). */
@@ -1237,7 +1239,7 @@ public class BobPanel extends View {
 
     private void drawKnob(Canvas c, int k, float v, String label, int color) {
         float cx = knobX(k), cy = knobY(k);
-        float ringR = 38 * d, arcR = 40.5f * d, capR = 24 * d, theta = 135f - 270f * v;
+        float ringR = 34 * d, arcR = 36.5f * d, capR = 21 * d, theta = 135f - 270f * v;
         c.save();
         c.translate(cx, cy);
         dst.set(-ringR, -ringR, ringR, ringR);
@@ -1258,11 +1260,8 @@ public class BobPanel extends View {
         p.setColor(color);
         c.drawLine(0, -capR * 0.20f, 0, -capR * 0.90f, p);
         c.restore();
-        // nome na vertical, do lado esquerdo do botão
-        c.save();
-        c.rotate(-90f, 15 * d, cy);
-        drawIridescent(c, label + " " + Math.round(v * 100) + "%", 15 * d, cy, 8.5f * d);
-        c.restore();
+        // nome embaixo do botão
+        drawIridescent(c, label + " " + Math.round(v * 100) + "%", cx, cy + 37 * d + 12 * d, 11 * d);
     }
 
     private void drawButton(Canvas c, int i) {
@@ -1270,7 +1269,7 @@ public class BobPanel extends View {
         boolean on = (i == 3 && sp.getBoolean("perf_on", false)) || (i == 5 && sp.getBoolean("cool_on", false));
         int ring = (i == 3 || i == 5) && !on ? 0xFF6A6A6A : BUTTON_RING[i];
         int ink = on ? ring : 0xFFEFE6CC;
-        float ringR = BUTTON_R * d, capR = 9.6f * d;
+        float ringR = BUTTON_R * d, capR = 12 * d;
         c.save();
         c.translate(cx, cy);
         p.setShader(null);
@@ -1278,14 +1277,14 @@ public class BobPanel extends View {
         p.setColor(0xFF050505);
         c.drawCircle(0, 0, ringR, p);
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(2.2f * d);
+        p.setStrokeWidth(2.4f * d);
         p.setColor(ring);
-        c.drawCircle(0, 0, ringR - 1.1f * d, p);
+        c.drawCircle(0, 0, ringR - 1.2f * d, p);
         dst.set(-capR, -capR, capR, capR);
         c.drawBitmap(capSmall, null, dst, uiPaint);
-        c.scale(0.56f, 0.56f); // o desenho dos ícones foi feito pra um botão maior
+        c.scale(0.7f, 0.7f); // o desenho dos ícones foi feito pra um botão maior
         p.setStrokeCap(Paint.Cap.ROUND);
-        p.setStrokeWidth(2.8f * d);
+        p.setStrokeWidth(2.6f * d);
         p.setColor(ink);
         switch (i) {
             case 0: // captura: moldura com ponto
@@ -1339,11 +1338,8 @@ public class BobPanel extends View {
                 break;
         }
         c.restore();
-        // nome na vertical, à esquerda do botão
-        c.save();
-        c.rotate(-90f, cx - 15.5f * d, cy);
-        drawIridescent(c, BUTTON_LABEL[i], cx - 15.5f * d, cy, 7.2f * d);
-        c.restore();
+        // nome embaixo do botão, maior
+        drawIridescent(c, BUTTON_LABEL[i], cx, cy + ringR + 11 * d, 8.5f * d);
     }
 
     /** Nome da música e botões de anterior, tocar/pausar e próxima. */
@@ -1357,7 +1353,7 @@ public class BobPanel extends View {
         int fit = p.breakText(title, true, maxW, null);
         if (fit < title.length()) title = title.substring(0, Math.max(1, fit - 1)) + "\u2026";
         p.setFakeBoldText(false);
-        drawIridescent(c, title, panW / 2f, 278 * d, 10 * d);
+        drawIridescent(c, title, panW / 2f, 296 * d, 10.5f * d);
 
         boolean playing = music.playing();
         for (int i = 0; i < 3; i++) {

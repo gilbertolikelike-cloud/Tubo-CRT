@@ -29,11 +29,11 @@
  },
  "sky_day": {
   "file": "sky_day.png",
-  "cols": 1,
-  "rows": 1,
-  "frames": 1,
-  "ms": 1000.0,
-  "aspect": 6.5606,
+  "cols": 4,
+  "rows": 8,
+  "frames": 31,
+  "ms": 40.0,
+  "aspect": 6.1111,
   "scale": 1.0
  },
  "sky_night": {
@@ -124,8 +124,26 @@
   "rows": 1,
   "frames": 4,
   "ms": 100.0,
-  "aspect": 2.8889,
+  "aspect": 1.4138,
   "scale": 1.0,
   "blend": false
+ },
+ "fire_sun": {
+  "file": "fire_sun.png",
+  "cols": 6,
+  "rows": 5,
+  "frames": 30,
+  "ms": 60.0,
+  "aspect": 1.0,
+  "scale": 1.0,
+  "blend": false
+ },
+ "tv": {
+  "file": "tv_frame.png",
+  "sl": 0.1188,
+  "st": 0.0756,
+  "sr": 0.8812,
+  "sb": 0.684,
+  "aspect": 1.0185
  }
 }

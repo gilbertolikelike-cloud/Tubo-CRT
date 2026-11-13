@@ -55,7 +55,7 @@ import java.util.TreeMap;
  * No pilar da esquerda ficam dois botões: ▦ abre as opções de ligar/desligar e + escolhe os seus jogos.
  */
 public class MainActivity extends Activity {
-    private static final int REQ_MUSIC_FOLDER = 7, REQ_AUDIO = 8;
+    private static final int REQ_MUSIC_FOLDER = 7, REQ_AUDIO = 8, REQ_TV_FOLDER = 9;
     private static final int INK = 0xFF1E1208; // texto escuro em cima da madeira clara
 
     // prateleiras amarelas (fração da altura do cenário) medidas nos gifs: {topo, base}
@@ -285,7 +285,7 @@ public class MainActivity extends Activity {
         addRow(slider("Transparência do Bob (100 = sólido)", "bob_alpha", 10, 100, 100, "%"));
         addRow(slider("Fluidez do Bob (0 = leve, 100 = suave)", "bob_fluid", 0, 100, 60, ""));
         addRow(slider("Chiado de TV na música (0 = desligado)", "tv_noise", 0, 100, 0, "%"));
-        addRow(slider("Tamanho do painel (%)", "panel_scale", 50, 100, 72, "%"));
+        addRow(slider("Tamanho do painel (%)", "panel_scale", 50, 100, 80, "%"));
         addRow(slider("Tamanho da letra do versículo", "verse_size", 10, 26, 14, ""));
         applyRowSizes();
         refresh();
@@ -442,6 +442,7 @@ public class MainActivity extends Activity {
             if (on) ed.putBoolean("perf_on", false);
             ed.apply();
         }));
+        box.addView(dialogButton("TV de vídeo (playlists por pasta)", v -> showTvDialog()));
         box.addView(switchRow("Analisador de espectro (pede permissão de áudio)", sp.getBoolean("spectrum_on", true), (b, on) -> {
             sp.edit().putBoolean("spectrum_on", on).apply();
             if (on && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
@@ -536,6 +537,64 @@ public class MainActivity extends Activity {
         }
     }
 
+    // ---------- TV de vídeo: cada pasta é uma playlist ----------
+    private void showTvDialog() {
+        final java.util.List<String> folders = TvLibrary.folders(sp);
+        java.util.List<String> items = new java.util.ArrayList<>();
+        for (String f : folders) items.add("Pasta: " + TvLibrary.folderName(f));
+        items.add("+ Adicionar pasta de vídeos");
+        if (TvService.running) items.add("Fechar a TV");
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("TV de vídeo: escolha a playlist")
+                .setItems(items.toArray(new String[0]), (dlg, which) -> {
+                    if (which < folders.size()) showTvVideos(folders.get(which));
+                    else if (which == folders.size()) pickTvFolder();
+                    else startService(new Intent(this, TvService.class).setAction(TvService.ACTION_STOP));
+                })
+                .setNegativeButton("Voltar", null)
+                .show();
+    }
+
+    private void pickTvFolder() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
+                | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+        startActivityForResult(i, REQ_TV_FOLDER);
+    }
+
+    private void showTvVideos(final String tree) {
+        Toast.makeText(this, "Lendo a pasta…", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            final java.util.List<TvLibrary.Video> vids = TvLibrary.videos(this, tree);
+            runOnUiThread(() -> {
+                if (vids.isEmpty()) {
+                    Toast.makeText(this, "Nenhum vídeo nessa pasta", Toast.LENGTH_LONG).show();
+                    return;
+                }
+                String[] items = new String[vids.size() + 1];
+                items[0] = "▶ Tocar a pasta toda (" + vids.size() + " vídeos)";
+                for (int i = 0; i < vids.size(); i++) items[i + 1] = vids.get(i).name;
+                new android.app.AlertDialog.Builder(this)
+                        .setTitle(TvLibrary.folderName(tree))
+                        .setItems(items, (dlg, which) -> startTv(tree, which == 0 ? 0 : which - 1))
+                        .setNegativeButton("Voltar", (dlg, w) -> showTvDialog())
+                        .setNeutralButton("Remover pasta", (dlg, w) -> {
+                            TvLibrary.removeFolder(sp, tree);
+                            showTvDialog();
+                        })
+                        .show();
+            });
+        }).start();
+    }
+
+    private void startTv(String tree, int index) {
+        if (!Settings.canDrawOverlays(this)) {
+            Toast.makeText(this, "Falta liberar \"aparecer sobre outros apps\"", Toast.LENGTH_LONG).show();
+            return;
+        }
+        startForegroundService(new Intent(this, TvService.class).setAction(TvService.ACTION_PLAY)
+                .putExtra("folder", tree).putExtra("index", index));
+    }
+
     private void pickMusicFolder() {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
                 | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
@@ -544,6 +603,17 @@ public class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == REQ_TV_FOLDER && result == RESULT_OK && data != null && data.getData() != null) {
+            Uri folder = data.getData();
+            try {
+                getContentResolver().takePersistableUriPermission(folder, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            } catch (RuntimeException ignored) {
+                // algumas pastas não deixam guardar a permissão: vale só até fechar o app
+            }
+            TvLibrary.addFolder(sp, folder.toString());
+            showTvDialog();
+            return;
+        }
         if (request != REQ_MUSIC_FOLDER || result != RESULT_OK || data == null || data.getData() == null) return;
         Uri tree = data.getData();
         try {

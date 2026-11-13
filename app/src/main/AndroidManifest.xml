@@ -39,6 +39,7 @@
         </activity>
 
         <service android:name=".OverlayService" android:exported="false"/>
+        <service android:name=".TvService" android:exported="false" android:foregroundServiceType="mediaPlayback"/>
 
         <service
             android:name=".CrtAccessService"
