@@ -2,6 +2,7 @@ package com.crtoverlay;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.res.Configuration;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
@@ -49,7 +50,7 @@ final class TvView extends FrameLayout {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Random rnd = new Random();
     private final float dens;
-    private final int screenW, screenH;
+    private int screenW, screenH; // área útil da tela agora (muda quando o celular gira)
     private final WindowManager.LayoutParams lp;
     private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint bmp = new Paint(Paint.FILTER_BITMAP_FLAG);
@@ -101,10 +102,7 @@ final class TvView extends FrameLayout {
         this.sp = sp;
         this.callback = callback;
         dens = ctx.getResources().getDisplayMetrics().density;
-        DisplayMetrics dm = new DisplayMetrics();
-        wm.getDefaultDisplay().getRealMetrics(dm);
-        screenW = dm.widthPixels;
-        screenH = dm.heightPixels;
+        refreshScreen();
         setWillNotDraw(false);
         fillMode = sp.getInt("tv_fill", 0);
         tp.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
@@ -142,6 +140,37 @@ final class TvView extends FrameLayout {
     }
 
     WindowManager.LayoutParams layoutParams() { return lp; }
+
+    /** Área útil da tela agora, sem a barra de navegação (a TV não pode ficar por baixo dela). */
+    private void refreshScreen() {
+        DisplayMetrics dm = new DisplayMetrics();
+        wm.getDefaultDisplay().getMetrics(dm);
+        screenW = dm.widthPixels;
+        screenH = dm.heightPixels;
+    }
+
+    /** Põe a TV inteira, com as perninhas, dentro da tela: tamanho e posição. */
+    private void clampToScreen() {
+        refreshScreen();
+        float maxW = Math.min(screenW, screenH * aspect);
+        if (lp.width > maxW) {
+            lp.width = Math.round(maxW);
+            lp.height = Math.round(maxW / aspect);
+        }
+        lp.x = Math.max(0, Math.min(screenW - lp.width, lp.x));
+        lp.y = Math.max(0, Math.min(screenH - lp.height, lp.y));
+        updateWindow();
+    }
+
+    @Override protected void onAttachedToWindow() {
+        super.onAttachedToWindow();
+        post(this::clampToScreen);
+    }
+
+    @Override protected void onConfigurationChanged(Configuration newConfig) {
+        super.onConfigurationChanged(newConfig); // a tela girou
+        post(this::clampToScreen);
+    }
 
     private void loadFrame() {
         try (InputStream in = ctx.getAssets().open("bob_meta.json")) {
@@ -490,6 +519,7 @@ final class TvView extends FrameLayout {
         float x = e.getX(), y = e.getY();
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
+                refreshScreen();
                 layoutRects(getWidth(), getHeight());
                 rawDownX = e.getRawX();
                 rawDownY = e.getRawY();
@@ -554,7 +584,7 @@ final class TvView extends FrameLayout {
 
     private void resize(float dxr) {
         boolean left = corner == 0 || corner == 2, top = corner == 0 || corner == 1;
-        float nw = Math.max(170 * dens, Math.min(screenW, startW + (left ? -dxr : dxr)));
+        float nw = Math.max(170 * dens, Math.min(Math.min(screenW, screenH * aspect), startW + (left ? -dxr : dxr)));
         float nh = nw / aspect;
         lp.width = Math.round(nw);
         lp.height = Math.round(nh);

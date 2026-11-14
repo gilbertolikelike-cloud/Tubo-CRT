@@ -68,10 +68,10 @@ public class BobPanel extends View {
     private static final int M_TRANSPORT = 10; // 10..12 = anterior, tocar/pausar, próxima
     private static final String[] BUTTON_LABEL = {"FOTO", "APAGAR", "RAM", "MAX", "PARAR", "GELO"};
     private static final int[] BUTTON_RING = {0xFF2EAD5B, 0xFFD94040, 0xFF4F6BFF, 0xFFFFC107, 0xFFFF7043, 0xFF4FC3F7};
-    private static final int M_SPECTRUM = 13, M_DRAWER = 20, M_TVLIST = 21, M_DRAWER_CLOSE = 22;
+    private static final int M_SPECTRUM = 13, M_DRAWER = 20, M_TVLIST = 21, M_DRAWER_CLOSE = 22, M_MEDALS = 23, M_CLICKER = 24;
     /** Posição dos 6 botões (dp), na ordem FOTO, APAGAR, RAM, MAX, PARAR, GELO. Coluna da direita (de cima pra baixo): APAGAR, FOTO, MAX. Coluna do meio: PARAR, GELO, RAM. */
     private static final int[] SLOT_ORDER = {1, 0, 3, 4, 5, 2}; // APAGAR, FOTO, MAX, PARAR, GELO, RAM
-    private static final float[] SLOT_X = {204, 204, 204, 160, 160, 160}, SLOT_Y = {78, 136, 194, 78, 136, 194}, DRAWER_Y = {92, 142, 192, 92, 142, 192};
+    private static final float[] SLOT_X = {204, 204, 204, 160, 160, 160}, SLOT_Y = {78, 136, 194, 78, 136, 194}, DRW_X = {160, 204}, DRW_Y = {72, 114, 156, 198}; // casas da gaveta: 4 linhas x 2 colunas
     private static final float RAINBOW_LEN = 120f;
     private static final long AUTO_CLOSE_MS = 10000;
     private static final float PANEL_W_DP = 232f, PANEL_H_DP = 360f, BORDER_DP = 6f;
@@ -199,10 +199,10 @@ public class BobPanel extends View {
         stripC = new LinearGradient(0, 232 * d, 0, 272 * d, 0xFF000000, 0xFF1C1C1C, Shader.TileMode.CLAMP);
         stripB = new LinearGradient(0, 278 * d, 0, 342 * d, 0xFF000000, 0xFF1C1C1C, Shader.TileMode.CLAMP);
         // peças com textura, desenhadas uma vez só: tampas de metal serrilhado, aro preto com marcas e a madeira da moldura
-        capBig = makeCap(Math.round(42 * d));
+        capBig = makeCap(Math.round(40 * d));
         capSmall = makeCap(Math.round(24 * d));
         capTransport = makeCap(Math.round(26 * d));
-        dialRing = makeDial(Math.round(68 * d));
+        dialRing = makeDial(Math.round(64 * d));
         woodBitmap = makeWood(Math.max(32, Math.round(90 * d)));
         woodShader = new BitmapShader(woodBitmap, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT);
         sunGlow = new RadialGradient(0, 0, 14 * d, 0x99FFE27A, 0x00FFE27A, Shader.TileMode.CLAMP);
@@ -387,6 +387,7 @@ public class BobPanel extends View {
     }
 
     public void hide() {
+        closeMedals();
         added = false;
         handler.removeCallbacksAndMessages(null);
         dropTrail();
@@ -687,7 +688,7 @@ public class BobPanel extends View {
 
     // ---------- geometria das peças (dentro do painel, em px) ----------
     private float knobX(int i) { return 48 * d; }
-    private float knobY(int i) { return (i == 0 ? 82 : 172) * d; }
+    private float knobY(int i) { return (i == 0 ? 80 : 176) * d; }
     /** O botão está dentro da gaveta? (escolhido em ▦ > "Botões da gaveta") */
     private boolean inDrawer(int button) { return (sp.getInt("drawer_mask", 0) & (1 << button)) != 0; }
 
@@ -702,8 +703,12 @@ public class BobPanel extends View {
         return -1;
     }
 
-    private float buttonX(int i) { int s = slotOf(i, inDrawer(i)); return (s < 0 ? -999 : SLOT_X[s]) * d; }
-    private float buttonY(int i) { boolean dr = inDrawer(i); int s = slotOf(i, dr); return (s < 0 ? -999 : (dr ? DRAWER_Y[s] : SLOT_Y[s])) * d; }
+    private float drawerX(int k) { return DRW_X[k % 2] * d; }
+
+    private float drawerY(int k) { return DRW_Y[k / 2] * d; }
+
+    private float buttonX(int i) { boolean dr = inDrawer(i); int s = slotOf(i, dr); return s < 0 ? -999 * d : (dr ? drawerX(s + 2) : SLOT_X[s] * d); }
+    private float buttonY(int i) { boolean dr = inDrawer(i); int s = slotOf(i, dr); return s < 0 ? -999 * d : (dr ? drawerY(s + 2) : SLOT_Y[s] * d); }
     private float transportX(int i) { return (PANEL_W_DP / 2f + (i - 1) * 52) * d; }
     private float transportY() { return 321 * d; }
 
@@ -712,15 +717,16 @@ public class BobPanel extends View {
         if (x >= bl && x <= bl + bobW && y >= bt && y <= bt + bobH) return M_BOB;
         if (anim < 0.5f) return M_NONE;
         float px = x - (panX - winX), py = y - (panY - winY);
-        for (int i = 0; i < 2; i++) if (Math.hypot(px - knobX(i), py - knobY(i)) < 38 * d) return i == 0 ? M_VOL : M_BRI;
+        for (int i = 0; i < 2; i++) if (Math.hypot(px - knobX(i), py - knobY(i)) < 36 * d) return i == 0 ? M_VOL : M_BRI;
         if (drawerOpen) {
-            for (int i = 0; i < BUTTONS; i++) if (inDrawer(i) && Math.hypot(px - buttonX(i), py - buttonY(i)) < 20 * d) return M_BTN + i;
-            if (Math.hypot(px - 182 * d, py - 62 * d) < 16 * d) return M_DRAWER_CLOSE;
+            if (Math.hypot(px - drawerX(0), py - drawerY(0)) < 17 * d) return M_MEDALS;  // abre o painel de medalhas
+            if (Math.hypot(px - drawerX(1), py - drawerY(1)) < 17 * d) return M_CLICKER; // abre o painel do auto clicker
+            for (int i = 0; i < BUTTONS; i++) if (inDrawer(i) && Math.hypot(px - buttonX(i), py - buttonY(i)) < 17 * d) return M_BTN + i;
         } else {
             for (int i = 0; i < BUTTONS; i++) if (!inDrawer(i) && Math.hypot(px - buttonX(i), py - buttonY(i)) < 20 * d) return M_BTN + i;
         }
-        if (Math.hypot(px - 111 * d, py - 200 * d) < 17 * d) return M_DRAWER; // botãozinho da gaveta
-        if (Math.hypot(px - 111 * d, py - 164 * d) < 17 * d) return M_TVLIST; // botãozinho da TV
+        if (Math.hypot(px - 111 * d, py - 206 * d) < 16 * d) return M_DRAWER; // botãozinho da gaveta
+        if (Math.hypot(px - 111 * d, py - 166 * d) < 16 * d) return M_TVLIST; // botãozinho da TV
         for (int i = 0; i < 3; i++) if (Math.hypot(px - transportX(i), py - transportY()) < 22 * d) return M_TRANSPORT + i;
         if (music.analyzerState() != 0 && px >= 12 * d && px <= panW - 12 * d && py >= 232 * d && py <= 272 * d) return M_SPECTRUM;
         return M_NONE;
@@ -782,6 +788,12 @@ public class BobPanel extends View {
                 } else if (mode == M_DRAWER && hit(x, y) == M_DRAWER) {
                     sounds.beep();
                     drawerOpen = !drawerOpen;
+                } else if (mode == M_MEDALS && hit(x, y) == M_MEDALS) {
+                    sounds.beep();
+                    openMedals();
+                } else if (mode == M_CLICKER && hit(x, y) == M_CLICKER) {
+                    sounds.beep();
+                    Toast.makeText(ctx, "Painel do Auto Clicker: em construção", Toast.LENGTH_SHORT).show();
                 } else if (mode == M_DRAWER_CLOSE && hit(x, y) == M_DRAWER_CLOSE) {
                     sounds.beep();
                     drawerOpen = false;
@@ -964,6 +976,7 @@ public class BobPanel extends View {
         c.drawRoundRect(r, 10.7f * d, 10.7f * d, p);
 
         drawSky(c);
+        drawStats(c);
         drawStripRect(c, stripA, 139, 50, 183, 226);   // coluna do meio
         drawStripRect(c, stripA, 186, 50, 226, 226);   // coluna da direita
         drawStripRect(c, stripC, 12, 232, 220, 272);   // analisador de espectro
@@ -974,8 +987,8 @@ public class BobPanel extends View {
         drawClock(c);
         if (drawerOpen) drawDrawer(c);
         else for (int i = 0; i < BUTTONS; i++) if (!inDrawer(i)) drawButton(c, i);
-        drawBigButton(c, 111 * d, 164 * d, 0xFF35C9E0, "TV LISTA", 1);   // botãozinho da TV
-        drawBigButton(c, 111 * d, 200 * d, 0xFFE8A33D, "GAVETA", 0);     // botãozinho da gaveta
+        drawBigButton(c, 111 * d, 166 * d, 0xFF35C9E0, "TV LISTA", 1);   // botãozinho da TV
+        drawBigButton(c, 111 * d, 206 * d, 0xFFE8A33D, "GAVETA", 0);     // botãozinho da gaveta
         drawMusic(c);
         drawSignature(c);
     }
@@ -1162,9 +1175,9 @@ public class BobPanel extends View {
         String time = h + ":" + (m < 10 ? "0" : "") + m;
         String period = now.get(Calendar.AM_PM) == Calendar.AM ? "AM" : "PM";
         float cx = 111 * d;
-        if (Weather.hasData(sp)) drawIridescent(c, Math.round(Weather.temperature(sp)) + "\u00B0C", cx, 108 * d, 12 * d);
-        drawIridescent(c, time, cx, 128 * d, 15 * d);
-        drawIridescent(c, period, cx, 142 * d, 9.5f * d);
+        if (Weather.hasData(sp)) drawIridescent(c, Math.round(Weather.temperature(sp)) + "\u00B0C", cx, 103 * d, 12 * d);
+        drawIridescent(c, time, cx, 122 * d, 15 * d);
+        drawIridescent(c, period, cx, 135 * d, 9.5f * d);
     }
 
     /** Texto furta-cor: as cores deslizam, com contorno escuro pra dar pra ler em cima do papel. */
@@ -1294,7 +1307,7 @@ public class BobPanel extends View {
 
     private void drawKnob(Canvas c, int k, float v, String label, int color) {
         float cx = knobX(k), cy = knobY(k);
-        float ringR = 34 * d, arcR = 36.5f * d, capR = 21 * d, theta = 135f - 270f * v;
+        float ringR = 32 * d, arcR = 34.5f * d, capR = 20 * d, theta = 135f - 270f * v;
         c.save();
         c.translate(cx, cy);
         dst.set(-ringR, -ringR, ringR, ringR);
@@ -1316,12 +1329,12 @@ public class BobPanel extends View {
         c.drawLine(0, -capR * 0.20f, 0, -capR * 0.90f, p);
         c.restore();
         // nome embaixo do botão
-        drawIridescent(c, label + " " + Math.round(v * 100) + "%", cx, cy + 37 * d + 12 * d, 11 * d);
+        drawIridescent(c, label + " " + Math.round(v * 100) + "%", cx, cy + 47 * d, 11 * d); // espaço de sobra entre o botão e o nome
     }
 
     /** Botão grande da faixa (gaveta e TV LISTA). */
     private void drawBigButton(Canvas c, float cx, float cy, int ring, String label, int kind) {
-        float ringR = 14 * d, capR = 11 * d;
+        float ringR = 13 * d, capR = 10.5f * d;
         c.save();
         c.translate(cx, cy);
         p.setShader(null);
@@ -1329,28 +1342,80 @@ public class BobPanel extends View {
         p.setColor(0xFF050505);
         c.drawCircle(0, 0, ringR, p);
         p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(2.8f * d);
+        p.setStrokeWidth(2.4f * d);
         p.setColor(ring);
-        c.drawCircle(0, 0, ringR - 1.4f * d, p);
+        c.drawCircle(0, 0, ringR - 1.2f * d, p);
         dst.set(-capR, -capR, capR, capR);
         c.drawBitmap(capBig, null, dst, uiPaint);
-        c.scale(0.62f, 0.62f); // o desenho foi feito pra um botão maior
+        c.scale(0.58f, 0.58f); // o desenho foi feito pra um botão maior
         p.setStrokeCap(Paint.Cap.ROUND);
-        p.setStrokeWidth(3.2f * d);
+        p.setStrokeWidth(3.4f * d);
         p.setColor(0xFFEFE6CC);
-        if (kind == 0) { // gaveta: caixa com puxador
-            r.set(-9 * d, -7 * d, 9 * d, 7 * d);
-            c.drawRoundRect(r, 2 * d, 2 * d, p);
-            c.drawLine(-9 * d, -1 * d, 9 * d, -1 * d, p);
-            c.drawLine(-3 * d, 3.5f * d, 3 * d, 3.5f * d, p);
-        } else {         // TV: tela com antenas
-            r.set(-9 * d, -5 * d, 9 * d, 8 * d);
-            c.drawRoundRect(r, 3 * d, 3 * d, p);
-            c.drawLine(0, -5 * d, -5 * d, -10 * d, p);
-            c.drawLine(0, -5 * d, 5 * d, -10 * d, p);
+        switch (kind) {
+            case 0: // gaveta: caixa com puxador
+                r.set(-9 * d, -7 * d, 9 * d, 7 * d);
+                c.drawRoundRect(r, 2 * d, 2 * d, p);
+                c.drawLine(-9 * d, -1 * d, 9 * d, -1 * d, p);
+                c.drawLine(-3 * d, 3.5f * d, 3 * d, 3.5f * d, p);
+                break;
+            case 1: // TV: tela com antenas
+                r.set(-9 * d, -5 * d, 9 * d, 8 * d);
+                c.drawRoundRect(r, 3 * d, 3 * d, p);
+                c.drawLine(0, -5 * d, -5 * d, -10 * d, p);
+                c.drawLine(0, -5 * d, 5 * d, -10 * d, p);
+                break;
+            case 2: // medalha: círculo com fita
+                c.drawCircle(0, 3 * d, 7.5f * d, p);
+                c.drawLine(-3.5f * d, -4 * d, -7 * d, -11 * d, p);
+                c.drawLine(3.5f * d, -4 * d, 7 * d, -11 * d, p);
+                break;
+            default: // auto clicker: seta de mouse
+                path.reset();
+                path.moveTo(-6 * d, -9 * d);
+                path.lineTo(-6 * d, 7 * d);
+                path.lineTo(-1.5f * d, 3 * d);
+                path.lineTo(3 * d, 10 * d);
+                path.lineTo(6 * d, 8 * d);
+                path.lineTo(1.5f * d, 1.5f * d);
+                path.lineTo(7 * d, 1.5f * d);
+                path.close();
+                p.setStyle(Paint.Style.FILL);
+                c.drawPath(path, p);
+                break;
         }
         c.restore();
         drawIridescent(c, label, cx, cy + ringR + 10 * d, 8.5f * d);
+    }
+
+    /** Placar no alto do céu: nível da espada e kills (da rodada / total). */
+    private void drawStats(Canvas c) {
+        String s = "LV " + GameState.level(sp) + "  K " + GameState.killsRun(sp) + "/" + GameState.killsTotal(sp);
+        p.setShader(null);
+        p.setTextSize(8.5f * d);
+        p.setTextAlign(Paint.Align.RIGHT);
+        p.setFakeBoldText(true);
+        float x = panW - 11 * d, y = 17 * d;
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeWidth(2.2f * d);
+        p.setColor(0xFF000000);
+        c.drawText(s, x, y, p);
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0xFFFFFFFF);
+        c.drawText(s, x, y, p);
+        p.setTextAlign(Paint.Align.LEFT);
+        p.setFakeBoldText(false);
+    }
+
+    private MedalPanel medalPanel;
+
+    /** MEDALHAS (dentro da gaveta): abre ou fecha o 2º painel. */
+    private void openMedals() {
+        if (medalPanel == null) medalPanel = new MedalPanel(ctx, wm, viaAccessibility, sp);
+        medalPanel.toggle();
+    }
+
+    private void closeMedals() {
+        if (medalPanel != null) medalPanel.close();
     }
 
     /** Gaveta aberta: cobre as duas colunas e mostra só os botões que você escolheu pra ela. */
@@ -1362,12 +1427,17 @@ public class BobPanel extends View {
         p.setColor(0xFFE8A33D);
         r.set(139 * d, 50 * d, 226 * d, 226 * d);
         c.drawRoundRect(r, 9 * d, 9 * d, p);
-        boolean any = false;
-        for (int i = 0; i < BUTTONS; i++) if (inDrawer(i)) { drawButton(c, i); any = true; }
-        drawDrawerHandle(c);
-        if (!any) {
-            drawIridescent(c, "vazia", 182 * d, 122 * d, 10 * d);
-            drawIridescent(c, "escolha em \u25A6", 182 * d, 138 * d, 8.5f * d);
+        drawBigButton(c, drawerX(0), drawerY(0), 0xFFFFD27A, "MEDALHAS", 2); // abre o 2º painel
+        drawBigButton(c, drawerX(1), drawerY(1), 0xFF7CFF8A, "CLICKER", 3);  // abre o 3º painel
+        for (int i = 0; i < BUTTONS; i++) {
+            if (!inDrawer(i)) continue;
+            float cx = buttonX(i), cy = buttonY(i);
+            c.save();
+            c.translate(cx, cy);
+            c.scale(0.87f, 0.87f);
+            c.translate(-cx, -cy);
+            drawButton(c, i);
+            c.restore();
         }
     }
 

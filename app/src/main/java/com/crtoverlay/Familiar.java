@@ -12,6 +12,7 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.Typeface;
+import android.media.MediaPlayer;
 import android.os.Process;
 import android.os.SystemClock;
 import android.text.Layout;
@@ -128,6 +129,10 @@ final class Familiar {
         private float alucardX, alucardStart, alucardUntil, alucardNextAt;
         // versículo: o 1º sai logo; depois espera 5, 7 e 10 min (e de 10 em 10). Tocar na tela recomeça tudo.
         private int verseCount;
+        private final Context appCtx;
+        private volatile Medals medals;
+        private int level = 1;
+        private float levelUpUntil;
         private float nextVerseAt;
         // batalha da noite: a espada azul de raio contra a espada que mata os patos
         private static final int DUEL = 6;
@@ -142,6 +147,8 @@ final class Familiar {
             super(c);
             d = c.getResources().getDisplayMetrics().density;
             sp = c.getSharedPreferences("crt", Context.MODE_PRIVATE);
+            appCtx = c.getApplicationContext();
+            level = GameState.level(sp);
             Typeface sans = Typeface.create("sans-serif-medium", Typeface.NORMAL);
             Typeface sansBold = Typeface.create("sans-serif", Typeface.BOLD);
             verseText.setColor(0xFF000000);
@@ -176,6 +183,7 @@ final class Familiar {
                 alucardSheet = alucard;
                 nightSheet = night;
                 verses = v;
+                medals = v != null ? new Medals(sp, v.size()) : null;
                 swordSheet = sword;
             }).start();
         }
@@ -399,6 +407,12 @@ final class Familiar {
                 duckAlive = false;
                 missStreak = 0;
                 spawnSparks(dx, dy, 20);
+                if (GameState.addKill(sp, 60)) { // pato morto: soma kills e EXP; pode subir de nível
+                    level = GameState.level(sp);
+                    levelUpUntil = t + 2.5f;
+                    playLevelUp();
+                    spawnSparks(sx, sy, 30);
+                }
                 if (t >= nextVerseAt) { // ainda não deu o tempo do próximo versículo? então só mata o pato
                     chooseVerse();
                     float[] waitMin = {5f, 7f, 10f, 10f};
@@ -455,7 +469,17 @@ final class Familiar {
 
         private void chooseVerse() {
             Verses v = verses;
-            String[] verse = v != null ? v.random(rnd) : new String[]{"O SENHOR é o meu pastor; nada me faltará.", "Salmos 23:1"};
+            Medals md = medals;
+            boolean fresh = false;
+            String[] verse;
+            if (v != null) { // sorteia entre os versículos que ainda não deram medalha
+                int idx = md != null ? md.randomLocked(rnd) : -1;
+                if (idx < 0) idx = rnd.nextInt(v.size());
+                else if (md.unlock(idx)) fresh = true;
+                verse = v.get(idx);
+            } else {
+                verse = new String[]{"O SENHOR é o meu pastor; nada me faltará.", "Salmos 23:1"};
+            }
             float size = Math.max(10, Math.min(26, sp.getInt("verse_size", 14))) * d; // tamanho da letra: slider em ▦
             verseText.setTextSize(size);
             verseHalo.setTextSize(size);
@@ -464,7 +488,7 @@ final class Familiar {
             refHalo.setTextSize(size * 0.88f);
             refHalo.setStrokeWidth(Math.max(2f, size * 0.2f));
             int width = (int) Math.min(w * 0.76f, 300 * d);
-            String text = verse[0], ref = verse[1].isEmpty() ? "" : "\u2014 " + verse[1];
+            String text = verse[0], ref = verse[1].isEmpty() ? "" : "\u2014 " + verse[1] + (fresh ? "  (nova medalha!)" : "");
             verseLayout = layout(text, verseText, width);
             haloLayout = layout(text, verseHalo, width);
             refLayout = ref.isEmpty() ? null : layout(ref, refText, width);
@@ -692,6 +716,7 @@ final class Familiar {
                 drawSparks(c);
                 drawNightSword(c);
                 drawSword(c);
+                drawLevelUp(c);
                 drawClash(c);
                 drawBubble(c);
             }
@@ -774,7 +799,7 @@ final class Familiar {
             }
             SpriteSheet s = trailSheet;
             if (state == STRIKE && s != null) { // o rastro do ataque: a ponta (linha branca) fica na espada
-                s.frame(src, 0); // 1º tom (nível 1 a 49); os outros tons são dos níveis maiores
+                s.frame(src, Math.min(s.frames - 1, level >= 90 ? 3 : level >= 80 ? 2 : level >= 50 ? 1 : 0)); // o tom do rastro sobe com o nível
                 float len = 150 * d, hh = len / s.aspect;
                 float fade = 0.85f * Math.max(0f, 1f - traveled / (STRIKE_DIST_DP * d) * 0.6f);
                 c.save();
@@ -797,7 +822,7 @@ final class Familiar {
         private void drawSwordAt(Canvas c, float x, float y, float angle, float alpha, float scale) {
             SpriteSheet s = swordSheet;
             if (s == null) return;
-            s.frame(src, 0);
+            s.frame(src, level >= 50 && s.frames > 1 ? 1 : 0); // nível 50 em diante: modelo com as duas lâminas laterais
             float hh = swordLen() / s.sh, ww = hh * s.aspect;
             c.save();
             c.translate(x, y);
@@ -808,6 +833,39 @@ final class Familiar {
             c.drawBitmap(s.bitmap, src, dst, bmp);
             bmp.setAlpha(255);
             c.restore();
+        }
+
+        /** "LEVEL UP!" sobe e some em cima da espada. */
+        private void drawLevelUp(Canvas c) {
+            if (t >= levelUpUntil) return;
+            float life = (levelUpUntil - t) / 2.5f; // 1 -> 0
+            int alpha = (int) (255 * Math.min(1f, life * 2f));
+            float y = sy - 70 * d - (1f - life) * 40 * d;
+            String text = "LEVEL UP!  LV " + level;
+            p.setShader(null);
+            p.setTextAlign(Paint.Align.CENTER);
+            p.setFakeBoldText(true);
+            p.setTextSize(17 * d);
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(4 * d);
+            p.setColor(Color.argb(alpha, 0, 0, 0));
+            c.drawText(text, sx, y, p);
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Color.argb(alpha, 255, 214, 90));
+            c.drawText(text, sx, y, p);
+            p.setTextAlign(Paint.Align.LEFT);
+            p.setFakeBoldText(false);
+        }
+
+        private void playLevelUp() {
+            try {
+                MediaPlayer m = MediaPlayer.create(appCtx, R.raw.level_up);
+                if (m == null) return;
+                m.setOnCompletionListener(MediaPlayer::release);
+                m.start();
+            } catch (RuntimeException ignored) {
+                // sem som de level up: o resto continua
+            }
         }
 
         private void drawSparks(Canvas c) {

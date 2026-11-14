@@ -104,3 +104,12 @@ Tudo que ele mandou está em `referencias/` (gifs, folhas de sprites, os 2 model
 ## Atualização 6 (gaveta de verdade)
 - O painel voltou ao desenho de antes (6 botões em duas colunas, nomes embaixo). Entre a hora e as colunas ficaram 2 botãozinhos: TV LISTA e GAVETA.
 - GAVETA: o Gilberto escolhe em ▦ > "Botões da gaveta" quais dos 6 (APAGAR, FOTO, MAX, PARAR, GELO, RAM) vão pra dentro dela (preferência drawer_mask, um bit por botão). Os que ficam no painel reorganizam as casas sem buracos. A gaveta aberta cobre as duas colunas, com borda dourada e uma setinha pra fechar. Padrão: gaveta vazia (painel igual ao de antes).
+
+## Atualização 7 (começou o jogo)
+- TV: sempre inteira dentro da tela (com as perninhas): recalcula a área útil (sem a barra de navegação) ao girar o celular, a cada toque e ao redimensionar.
+- Painel: mais espaço entre o botão de girar e o nome (VOL/BRI) e entre o relógio e os botõezinhos TV LISTA / GAVETA.
+- Gaveta: 8 casas (4 linhas x 2). As duas primeiras são fixas: MEDALHAS (abre o 2º painel) e CLICKER (3º painel, ainda em construção). Depois vêm os botões que o Gilberto escolheu pra gaveta.
+- Painel de medalhas (MedalPanel): placar (versículos, kills da rodada e total, nível e EXP), medalhas de OURO e RGB (apagadas até achar os patos pet; prefs medal_gold e medal_rgb) e lista de livros com o progresso de versículos. Arrasta pelo título, rola a lista com o dedo.
+- Jogo v1 (GameState, Medals): cada pato morto soma kill e EXP (floor(log2(2*60/nível)), mín. 1; 100 EXP por nível, máx. 99). Subiu de nível: som level_up.mp3 e "LEVEL UP!". Nível 50+ usa o modelo B da espada; o tom do rastro sobe nos níveis 50, 80 e 90. O placar aparece no alto do céu do painel ("LV n  K rodada/total").
+- Medalha por versículo: o versículo mostrado no balão é sorteado só entre os que ainda não deram medalha (padrão escolhido por mim, o Gilberto não respondeu); a referência ganha "(nova medalha!)". Bits salvos em medals_bits (Base64).
+- Falta: vida e tamanho dos patos, corações/3 vidas/game over, boss aos 100 kills, Renascer com buffs, patos de cor (azul, verde, vermelho), RGB e Ouro com pets, patos com poder, painel do Auto Clicker, ataque de profundidade (nível 70+), zerar kills da rodada no game over.
