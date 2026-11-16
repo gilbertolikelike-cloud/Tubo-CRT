@@ -113,3 +113,18 @@ Tudo que ele mandou está em `referencias/` (gifs, folhas de sprites, os 2 model
 - Jogo v1 (GameState, Medals): cada pato morto soma kill e EXP (floor(log2(2*60/nível)), mín. 1; 100 EXP por nível, máx. 99). Subiu de nível: som level_up.mp3 e "LEVEL UP!". Nível 50+ usa o modelo B da espada; o tom do rastro sobe nos níveis 50, 80 e 90. O placar aparece no alto do céu do painel ("LV n  K rodada/total").
 - Medalha por versículo: o versículo mostrado no balão é sorteado só entre os que ainda não deram medalha (padrão escolhido por mim, o Gilberto não respondeu); a referência ganha "(nova medalha!)". Bits salvos em medals_bits (Base64).
 - Falta: vida e tamanho dos patos, corações/3 vidas/game over, boss aos 100 kills, Renascer com buffs, patos de cor (azul, verde, vermelho), RGB e Ouro com pets, patos com poder, painel do Auto Clicker, ataque de profundidade (nível 70+), zerar kills da rodada no game over.
+
+## Atualização 8
+- Bob discoteca saiu: no lugar entrou o Ned Flanders dançando (gif novo, 100 quadros; internamente a chave continua "disco").
+- Partes brancas dos gifs limpas quadro a quadro: Papyrus (calombo branco entre as pernas), pato de boné (bloco branco entre as pernas) e borda branca do pato da espada. Ainda pode sobrar um pontinho aqui e ali; a fonte é pequena. Dica: o Gilberto tem o Anime4K; se aumentar os gifs originais e mandar, eu uso.
+- Pato da espada e espada azul agora carregam em resolução cheia (antes era metade) e usam mipmap (menos "pixels" ao diminuir).
+- Pato da espada menor (56dp; a espada tem 112dp). Boss grande e pets bem pequenos ficam para o jogo.
+- Tiro de ricochete: depois de 3 a 5 erros seguidos (ou, de longe, 35% das vezes) a espada gira, mira numa parede "espelhando" o pato, bate, pega 1.7x de velocidade e passa a mirar o pato (não erra).
+- Espada pesada (não lenta): acelera e gira menos rápido, a estocada arranca devagar e ganha velocidade, trava um instante no impacto (hit-stop) e demora um pouco pra parar.
+- Alucard sumiu da cena (só boss no jogo, depois de 1000 kills, 5% de chance; Puxa-Frango 2,5%).
+- Batalha da noite com a espada DO PAINEL (o Bob de noite sai do painel e some de lá): barras de vida, combos de 1 a 4 golpes, defesas (30%), revide, até uma morrer. Quem vence comemora; a espada do painel volta voando (ou renasce no lugar uns segundos depois, se perder); a espada dos patos renasce em outro ponto da tela.
+- Sol do painel de volta (o do gif foi apagado do céu) e continua indicando a hora. Letras do painel um pouco mais negrito.
+- Sons mais baixos (efeito padrão 35%, slider "Volume dos efeitos" em ▦; level up usa o mesmo volume).
+- Ícone novo do app: a TV cinza de antenas (NOVA_CAPA_DO_APP).
+- Painel de medalhas desliza de trás do painel principal, ligado por 2 canos de cobre (cano.png), e fecha junto com o principal. Falta: painel de cima (Clicker) e o desenho das placas de madeira dos vídeos; referências em PAINEL_DE_CONTROLE (3 vídeos + exemplo).
+- Versículo fica bem mais tempo na tela: 20 a 90 s conforme o tamanho (antes 12 a 45 s). Slider "Tempo do versículo na tela" em ▦ (50 a 300%, padrão 100%).

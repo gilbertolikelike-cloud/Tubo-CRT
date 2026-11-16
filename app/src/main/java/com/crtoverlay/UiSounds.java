@@ -61,7 +61,8 @@ final class UiSounds {
 
     private void play(int id, float volume) {
         if (id == 0 || !sp.getBoolean("ui_sounds", true)) return;
-        pool.play(id, volume, volume, 1, 0, 1f);
+        float k = Math.max(0f, Math.min(1f, sp.getInt("sfx_volume", 35) / 100f)) * 1.4f; // padrão 35%: baixinho
+        pool.play(id, volume * k, volume * k, 1, 0, 1f);
     }
 
     // ---------- geração dos sons ----------

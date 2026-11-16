@@ -282,6 +282,7 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
         panel.show();
         panel.setActivityListener(this::onUserActivity);
         if (familiar == null) familiar = new Familiar(this, wm, viaAccessibility);
+        familiar.setHost(panel); // a espada do painel luta de noite
         lastActivity = SystemClock.uptimeMillis();
         idleHandler.removeCallbacks(idleCheck);
         idleHandler.postDelayed(idleCheck, 4000);

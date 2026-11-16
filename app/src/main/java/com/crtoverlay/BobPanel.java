@@ -59,7 +59,7 @@ import org.json.JSONObject;
  *
  * Botão de girar: girar pra direita (sentido horário) diminui, pra esquerda aumenta.
  */
-public class BobPanel extends View {
+public class BobPanel extends View implements Familiar.Host {
     /** Os desenhos do Bob olham pra esquerda. */
     private static final boolean ASSET_FACES_LEFT = true;
 
@@ -387,7 +387,7 @@ public class BobPanel extends View {
     }
 
     public void hide() {
-        closeMedals();
+        if (medalPanel != null) medalPanel.closeNow();
         added = false;
         handler.removeCallbacksAndMessages(null);
         dropTrail();
@@ -538,6 +538,7 @@ public class BobPanel extends View {
 
     // ---------- abrir e fechar com animação ----------
     private void setOpen(boolean want, boolean animated) {
+        if (!want) closeMedals(); // os painéis extras só aparecem com o principal aberto
         if (!added) return;
         if (animator != null) animator.cancel();
         handler.removeCallbacks(autoClose);
@@ -886,6 +887,7 @@ public class BobPanel extends View {
     }
 
     private void drawBob(Canvas c) {
+        if (duelHidden) return; // a espada saiu do painel pra lutar
         float lx = bobX - winX, ly = bobY - winY, cx = lx + bobW / 2f, cy = ly + bobH / 2f;
         boolean onRightHalf = bobX + bobW / 2f > screenW / 2f;
         boolean onTop = bobY + bobH / 2f < screenH * 0.35f; // lá em cima ele fica de cabeça pra baixo
@@ -1083,7 +1085,7 @@ public class BobPanel extends View {
         float y = bottom - 7 * d - (float) Math.sin(Math.PI * arc) * (bottom - top - 18 * d);
 
         if (day) {
-            if (skySheet == null) { // com o gif carregado, o sol é o do gif
+            { // o sol anda pelo céu e mostra a hora do dia
             c.save();
             c.translate(x, y);
             p.setColor(0xFFFFFFFF);
@@ -1187,6 +1189,7 @@ public class BobPanel extends View {
         iridescent.setLocalMatrix(iridescentMatrix);
         p.setTextAlign(Paint.Align.CENTER);
         p.setTextSize(size);
+        p.setTypeface(android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)); // letra um pouco mais forte
         p.setFakeBoldText(true);
         p.setStrokeJoin(Paint.Join.ROUND);
         p.setShader(null);
@@ -1411,11 +1414,27 @@ public class BobPanel extends View {
     /** MEDALHAS (dentro da gaveta): abre ou fecha o 2º painel. */
     private void openMedals() {
         if (medalPanel == null) medalPanel = new MedalPanel(ctx, wm, viaAccessibility, sp);
-        medalPanel.toggle();
+        medalPanel.toggle(panX, panY, panW, panH);
     }
 
     private void closeMedals() {
         if (medalPanel != null) medalPanel.close();
+    }
+
+    // ---------- Familiar.Host: a espada do painel que vai lutar de noite ----------
+    private boolean duelHidden;
+
+    @Override public boolean swordAvailable() {
+        return added && !duelHidden && !dragging && "sword".equals(currentVariant);
+    }
+
+    @Override public float[] swordState() {
+        return new float[]{bobX + bobW / 2f, bobY + bobH / 2f, bobH};
+    }
+
+    @Override public void setSwordHidden(boolean hidden) {
+        duelHidden = hidden;
+        invalidate();
     }
 
     /** Gaveta aberta: cobre as duas colunas e mostra só os botões que você escolheu pra ela. */

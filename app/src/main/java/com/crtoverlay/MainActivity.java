@@ -288,6 +288,8 @@ public class MainActivity extends Activity {
         addRow(slider("Tamanho do painel (%)", "panel_scale", 50, 100, 80, "%"));
         addRow(slider("Tamanho da letra do versículo", "verse_size", 10, 26, 14, ""));
         addRow(slider("Escuridão do céu do painel (%)", "sky_dark", 0, 60, 22, "%"));
+        addRow(slider("Volume dos efeitos (cliques e level up)", "sfx_volume", 0, 100, 35, "%"));
+        addRow(slider("Tempo do versículo na tela (%)", "verse_time", 50, 300, 100, "%"));
         applyRowSizes();
         refresh();
         final int y = keep;

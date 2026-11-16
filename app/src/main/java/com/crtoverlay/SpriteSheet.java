@@ -39,6 +39,7 @@ final class SpriteSheet {
                 b = BitmapFactory.decodeStream(sheet, null, opt);
             }
             if (b == null) return null;
+            b.setHasMipMap(true); // ao diminuir o desenho fica mais liso, com menos "pixels"
             int cols = o.getInt("cols"), rows = o.getInt("rows");
             return new SpriteSheet(b, cols, o.getInt("frames"), b.getWidth() / cols, b.getHeight() / rows,
                     (float) o.getDouble("ms"), (float) o.getDouble("aspect"),

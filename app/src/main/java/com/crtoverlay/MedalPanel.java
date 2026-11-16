@@ -16,6 +16,7 @@ import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.SweepGradient;
 import android.graphics.Typeface;
+import android.os.SystemClock;
 import android.text.TextPaint;
 import android.util.DisplayMetrics;
 import android.view.Gravity;
@@ -30,6 +31,7 @@ import java.util.Random;
  * e, por livro da Bíblia, quantos versículos já deram medalha. Arrasta pelo título e rola a lista com o dedo.
  */
 final class MedalPanel extends View {
+    private static final float GAP = 28f;                    // espaço dos canos entre os painéis
     private static final float PW = 232f, PH = 360f;          // tamanho em dp (a tela é desenhada em dp)
     private static final float LIST_L = 14, LIST_T = 196, LIST_R = 218, LIST_B = 350, ROW = 30;
 
@@ -49,7 +51,11 @@ final class MedalPanel extends View {
     private final TextPaint tp = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final RectF r = new RectF();
     private final Matrix matrix = new Matrix();
-    private Bitmap plateBmp, woodBmp;
+    private Bitmap plateBmp, woodBmp, pipe;
+    private float finalX;
+    private boolean closing, animIn;
+    private long animStart;
+    private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
     private BitmapShader plate, wood;
 
     private int[] unlocked;
@@ -69,7 +75,7 @@ final class MedalPanel extends View {
         this.sp = sp;
         dens = ctx.getResources().getDisplayMetrics().density;
         d = dens * Math.max(0.5f, Math.min(1f, sp.getInt("panel_scale", 80) / 100f));
-        w = Math.round(PW * d);
+        w = Math.round((PW + GAP) * d);
         h = Math.round(PH * d);
         tp.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         woodBmp = makeWood();
@@ -79,6 +85,16 @@ final class MedalPanel extends View {
             if (plateBmp != null) plate = new BitmapShader(plateBmp, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP);
         } catch (java.io.IOException | RuntimeException ignored) {
             plate = null;
+        }
+        try (InputStream in = ctx.getAssets().open("pipe.png")) { // cano de cobre, deitado
+            Bitmap src = BitmapFactory.decodeStream(in);
+            if (src != null) {
+                Matrix rot = new Matrix();
+                rot.postRotate(90);
+                pipe = Bitmap.createBitmap(src, 0, 0, src.getWidth(), src.getHeight(), rot, true);
+            }
+        } catch (java.io.IOException | RuntimeException ignored) {
+            pipe = null;
         }
         DisplayMetrics dm = new DisplayMetrics();
         wm.getDefaultDisplay().getMetrics(dm);
@@ -92,18 +108,25 @@ final class MedalPanel extends View {
         lp.y = Math.max(0, (dm.heightPixels - h) / 2);
     }
 
-    void toggle() {
-        if (showing) close(); else show();
+    void toggle(float panelX, float panelY, float panelW, float panelH) {
+        if (!showing) show(panelX, panelY); else if (!closing) close();
     }
 
-    void show() {
+    /** Aparece do lado esquerdo do painel principal, ligado por canos, deslizando de trás dele. */
+    void show(float panelX, float panelY) {
         if (showing) return;
+        finalX = Math.max(0f, panelX + 6 * d - w);
+        lp.x = Math.round(finalX + (w - 28 * d));
+        lp.y = Math.round(panelY);
+        setAlpha(0f);
         try {
             wm.addView(this, lp);
             showing = true;
+            closing = false;
         } catch (RuntimeException e) {
             return;
         }
+        slide(true);
         scroll = 0f;
         final Context app = ctx.getApplicationContext();
         new Thread(() -> {
@@ -131,9 +154,42 @@ final class MedalPanel extends View {
     }
 
     void close() {
+        if (!showing || closing) return;
+        closing = true;
+        slide(false);
+    }
+
+    /** Fecha na hora, sem animação (o painel principal sumiu). */
+    void closeNow() {
+        handler.removeCallbacksAndMessages(null);
         if (!showing) return;
         showing = false;
+        closing = false;
         try { wm.removeView(this); } catch (RuntimeException ignored) { /* já saiu */ }
+    }
+
+    /** Desliza como as placas dos vídeos: sai de trás do painel principal, ou volta pra ele. */
+    private void slide(boolean in) {
+        animIn = in;
+        animStart = SystemClock.uptimeMillis();
+        handler.removeCallbacksAndMessages(null);
+        handler.post(new Runnable() {
+            @Override public void run() {
+                float k = Math.min(1f, (SystemClock.uptimeMillis() - animStart) / 280f);
+                float e = k * k * (3f - 2f * k); // começa e termina suave
+                float pos = animIn ? e : 1f - e;
+                lp.x = Math.round(finalX + (1f - pos) * (w - 28 * d));
+                setAlpha(pos);
+                try { wm.updateViewLayout(MedalPanel.this, lp); } catch (RuntimeException ignored) { /* janela já saiu */ }
+                if (k < 1f) {
+                    handler.postDelayed(this, 16);
+                } else if (!animIn) {
+                    showing = false;
+                    closing = false;
+                    try { wm.removeView(MedalPanel.this); } catch (RuntimeException ignored) { /* já saiu */ }
+                }
+            }
+        });
     }
 
     private Bitmap makeWood() {
@@ -261,7 +317,18 @@ final class MedalPanel extends View {
             }
         }
         c.restore();
+        drawPipes(c);
         c.restore();
+    }
+
+    /** Os dois canos de cobre que ligam este painel ao principal. */
+    private void drawPipes(Canvas c) {
+        if (pipe == null) return;
+        p.setFilterBitmap(true);
+        for (float y : new float[]{118f, 252f}) {
+            r.set(PW - 8, y - 8, PW + GAP, y + 8);
+            c.drawBitmap(pipe, null, r, p);
+        }
     }
 
     private void drawStrip(Canvas c, float l, float t, float rt, float b) {
@@ -334,7 +401,7 @@ final class MedalPanel extends View {
                 startScroll = scroll;
                 moved = false;
                 if (Math.hypot(x - 208, y - 24) < 16) mode = 1;
-                else if (y < 44) mode = 2;
+                else if (y < 44) mode = 0; // docked: não arrasta
                 else if (x >= LIST_L && x <= LIST_R && y >= LIST_T && y <= LIST_B) mode = 3;
                 else mode = 0;
                 return true;
