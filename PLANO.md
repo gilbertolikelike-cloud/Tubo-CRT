@@ -128,3 +128,20 @@ Tudo que ele mandou está em `referencias/` (gifs, folhas de sprites, os 2 model
 - Ícone novo do app: a TV cinza de antenas (NOVA_CAPA_DO_APP).
 - Painel de medalhas desliza de trás do painel principal, ligado por 2 canos de cobre (cano.png), e fecha junto com o principal. Falta: painel de cima (Clicker) e o desenho das placas de madeira dos vídeos; referências em PAINEL_DE_CONTROLE (3 vídeos + exemplo).
 - Versículo fica bem mais tempo na tela: 20 a 90 s conforme o tamanho (antes 12 a 45 s). Slider "Tempo do versículo na tela" em ▦ (50 a 300%, padrão 100%).
+
+## Atualização 9
+- Painel secundário (medalhas) 22% menor e alinhado com o principal (a janela dele não usava FLAG_LAYOUT_IN_SCREEN, então saía mais baixa). 3º painel (ClickerPanel) criado EM CIMA do principal, menor, com 3 canos verticais e os 3 modos (alvo único, multi alvos, OCR) ainda sem função; abre pelo botão CLICKER da gaveta.
+- Pingu (pingu_50fps.gif, 17 quadros a 20 ms) no lugar do Bob do painel de dia.
+- Ícone: tirado o ícone adaptativo (o One UI pinta de preto o fundo transparente). Agora é o ícone comum (PNG da TV cinza), que o launcher enquadra como nos outros apps. Pra ficar sem moldura nenhuma: Ajustes do Samsung > Tela inicial > Molduras de ícones > "Somente ícones".
+- Versículos coloridos pelo falante (VerseStyler): fala depois do travessão; Jesus = vermelho, Deus/SENHOR = azul, grandes profetas = dourado, discípulos = verde escuro; sem dono: evangelhos = vermelho, livros dos profetas = azul, cartas = verde. Livros dos profetas ficam dourados e as cartas verde escuro. Letreiro "VELHO TESTAMENTO" / "NOVO TESTAMENTO" em cima de cada versículo.
+
+## PEDIDOS AINDA NÃO FEITOS (próxima conversa)
+1. ESTÚDIO DE GIFs (opção em ▦): o Gilberto escolhe um GIF, escolhe QUAL desenho trocar (Bob de dia, os 3 dançarinos, Bob MAX, espada azul do painel, espada dos patos modelos A e B, pato alvo) e o app faz tudo sozinho: tira o fundo, mostra todos os quadros, ele toca nos pontos brancos que sobraram e eles são apagados (e "aplicar em todos os quadros"). Depois salva em filesDir/custom/<chave>.png + .json e o app passa a usar esse arquivo no lugar do original (SpriteSheet.load e o carregador do BobPanel olham primeiro a pasta custom; pref sprites_rev dispara o recarregamento). Botão "voltar ao original" por desenho.
+   Ideia técnica: decodificar o GIF com android.graphics.Movie (setTime + draw), preflood do fundo pelos cantos com tolerância, tirar borda branca, recortar pela união dos quadros, montar a folha (máx. ~20 MB), borracha por toque (flood fill por semelhança de cor) e pincel; desfazer.
+2. BIBLIOTECA DE EFEITOS por desenho (desenhados na hora, em Effects.java): Raio, Fogo, Gelo, Vento, Brilho, Sombra, Estrelas, Arco-íris, com intensidade; escolhidos no Estúdio (prefs fx_<chave> e fxi_<chave>).
+3. LUPA no painel (botão na gaveta): um quadrado (moldura) que o Gilberto arrasta pela tela + uma janela de visualização ampliada ao vivo, com uma barra vertical (pra cima = mais zoom, pra baixo = menos zoom). Captura por MediaProjection (pede permissão uma vez; serviço em primeiro plano tipo mediaProjection; ImageReader + VirtualDisplay), a moldura mostra a região e a janela de visualização fica separada dela (senão a captura enxerga a si mesma). Ele é meio cego: botões grandes e letras grandes.
+
+## Atualização 10
+- Leitor de PDF em forma de livro (BookActivity + BookView), aberto em ▦ > "Biblioteca de livros (PDF)": estante (PDFs avulsos ou pastas, segura pra tirar), capa de couro, duas páginas com sombra no miolo, folha que vira (toque nos lados ou arraste), zoom A−/A+, 1 ou 2 páginas, cores (normal, papel creme, noturno), ir pra página, lembra a página de cada livro. Usa o PdfRenderer do Android.
+- Espada dos patos parada: não passeia mais; só sai do lugar quando tem pato. Sem curvas: tudo em linha reta (perseguição e luta).
+- Batalha da noite reescrita no estilo Vagabond: faixas de cinema, vinheta, jogo de pernas em passos curtos, tensão, estocada, finta, golpe duplo, defesa, desvio, contra-ataque, corte fundo em câmera lenta com respingo de tinta, riscos de corte brancos, golpe final com as duas se cruzando e uma caindo.

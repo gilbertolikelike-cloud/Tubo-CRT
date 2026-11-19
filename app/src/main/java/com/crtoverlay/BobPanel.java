@@ -388,6 +388,7 @@ public class BobPanel extends View implements Familiar.Host {
 
     public void hide() {
         if (medalPanel != null) medalPanel.closeNow();
+        if (clickerPanel != null) clickerPanel.closeNow();
         added = false;
         handler.removeCallbacksAndMessages(null);
         dropTrail();
@@ -794,7 +795,7 @@ public class BobPanel extends View implements Familiar.Host {
                     openMedals();
                 } else if (mode == M_CLICKER && hit(x, y) == M_CLICKER) {
                     sounds.beep();
-                    Toast.makeText(ctx, "Painel do Auto Clicker: em construção", Toast.LENGTH_SHORT).show();
+                    openClicker();
                 } else if (mode == M_DRAWER_CLOSE && hit(x, y) == M_DRAWER_CLOSE) {
                     sounds.beep();
                     drawerOpen = false;
@@ -1417,8 +1418,17 @@ public class BobPanel extends View implements Familiar.Host {
         medalPanel.toggle(panX, panY, panW, panH);
     }
 
+    private ClickerPanel clickerPanel;
+
+    /** CLICKER (dentro da gaveta): abre ou fecha o 3º painel, em cima do principal. */
+    private void openClicker() {
+        if (clickerPanel == null) clickerPanel = new ClickerPanel(ctx, wm, viaAccessibility, sp);
+        clickerPanel.toggle(panX, panY, panW);
+    }
+
     private void closeMedals() {
         if (medalPanel != null) medalPanel.close();
+        if (clickerPanel != null) clickerPanel.close();
     }
 
     // ---------- Familiar.Host: a espada do painel que vai lutar de noite ----------

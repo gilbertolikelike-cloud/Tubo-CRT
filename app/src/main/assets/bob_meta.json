@@ -1,13 +1,13 @@
 {
  "day": {
   "file": "bob_day.png",
-  "cols": 12,
-  "rows": 10,
-  "frames": 120,
-  "ms": 61.0,
-  "aspect": 1.0864,
-  "scale": 1.0,
-  "blend": true
+  "cols": 6,
+  "rows": 3,
+  "frames": 17,
+  "ms": 20.0,
+  "aspect": 0.6452,
+  "scale": 1.15,
+  "blend": false
  },
  "saiyan": {
   "file": "bob_saiyan.png",

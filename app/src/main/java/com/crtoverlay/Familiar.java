@@ -140,7 +140,9 @@ final class Familiar {
         private float dx, dy, dvx, dvy, duckTurnAt, duckSpawnAt, duckChaseAt;
         // fala
         private float talkUntil;
-        private StaticLayout verseLayout, haloLayout, refLayout, refHaloLayout;
+        private StaticLayout verseLayout, haloLayout, refLayout, refHaloLayout, labelLayout, labelHaloLayout;
+        private final TextPaint labelText = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+        private final TextPaint labelHalo = new TextPaint(Paint.ANTI_ALIAS_FLAG);
         // Alucard (raro)
         private boolean alucardOn;
         private float alucardX, alucardStart, alucardUntil, alucardNextAt;
@@ -186,6 +188,12 @@ final class Familiar {
             refHalo.setTypeface(sansBold);
             refHalo.setStyle(Paint.Style.STROKE);
             refHalo.setStrokeJoin(Paint.Join.ROUND);
+            labelText.setColor(0xFF5A1E00);
+            labelText.setTypeface(sansBold);
+            labelHalo.setColor(0xFFFFFFFF);
+            labelHalo.setTypeface(sansBold);
+            labelHalo.setStyle(Paint.Style.STROKE);
+            labelHalo.setStrokeJoin(Paint.Join.ROUND);
             duckSpawnAt = 5f + rnd.nextFloat() * 4f;
             alucardNextAt = Float.MAX_VALUE; // o Alucard só vai aparecer como boss, no jogo
             final Context app = c.getApplicationContext();
@@ -313,20 +321,23 @@ final class Familiar {
         }
 
         private void roam(float dt) {
-            if (t >= nextWaypoint) {
-                float m = 60 * d;
-                if (alucardOn) { // orbita o Alucard, como no jogo
-                    tx = alucardX + (rnd.nextFloat() - 0.5f) * 260 * d;
-                    ty = alucardFeetY() - alucardH() * 1.05f + (rnd.nextFloat() - 0.5f) * 130 * d;
-                    tx = Math.max(m, Math.min(w - m, tx));
-                    ty = Math.max(m, Math.min(h - m, ty));
-                } else {
-                    tx = m + rnd.nextFloat() * (w - 2 * m);
-                    ty = m + rnd.nextFloat() * (h - 2 * m);
-                }
-                nextWaypoint = t + 1.4f + rnd.nextFloat() * 1.8f;
-            }
-            steer(tx, ty, 230 * d, 480 * d, dt);
+            // estacionada: só balança de leve. Ela só sai do lugar quando aparece um pato.
+            svx = 0f;
+            svy = 0f;
+            ang += wrap((float) Math.sin(t * 1.8f) * 5f - ang) * Math.min(1f, 3f * dt);
+        }
+
+        /** Anda em linha reta até o ponto (sem curvas): arranca, e freia perto do destino. */
+        private void moveStraight(float targetX, float targetY, float speed, float dt) {
+            float vx = targetX - sx, vy = targetY - sy, dist = (float) Math.hypot(vx, vy);
+            if (dist < 1f) { svx = 0f; svy = 0f; return; }
+            float sp2 = Math.min(speed, dist * 6f + 40 * d);
+            float step = Math.min(dist, sp2 * dt);
+            sx += vx / dist * step;
+            sy += vy / dist * step;
+            svx = vx / dist * sp2;
+            svy = vy / dist * sp2;
+            ang += wrap(tipAngle(vx, vy) - ang) * Math.min(1f, 5f * dt);
         }
 
         private void spawnDuck() {
@@ -372,7 +383,7 @@ final class Familiar {
             float vx = sx - dx, vy = sy - dy, dist = (float) Math.hypot(vx, vy);
             if (dist < 1f) { vx = 1f; vy = 0f; dist = 1f; }
             float standoff = 230 * d;
-            steer(dx + vx / dist * standoff, dy + vy / dist * standoff, 300 * d, 700 * d, dt);
+            moveStraight(dx + vx / dist * standoff, dy + vy / dist * standoff, 300 * d, dt);
             if (Math.hypot(dx + vx / dist * standoff - sx, dy + vy / dist * standoff - sy) < 45 * d) {
                 // WIND-UP: trava a mira no pato, zera a velocidade e começa a girar no lugar
                 float ux = dx - sx, uy = dy - sy, len = Math.max(1f, (float) Math.hypot(ux, uy));
@@ -548,6 +559,8 @@ final class Familiar {
                 state = ROAM;
                 verseLayout = null;
                 haloLayout = null;
+                labelLayout = null;
+                labelHaloLayout = null;
                 refLayout = null;
                 refHaloLayout = null;
                 nextWaypoint = t;
@@ -576,15 +589,26 @@ final class Familiar {
             refHalo.setStrokeWidth(Math.max(2f, size * 0.2f));
             int width = (int) Math.min(w * 0.76f, 300 * d);
             String text = verse[0], ref = verse[1].isEmpty() ? "" : "\u2014 " + verse[1] + (fresh ? "  (nova medalha!)" : "");
-            verseLayout = layout(text, verseText, width);
-            haloLayout = layout(text, verseHalo, width);
+            String book = verse[1].isEmpty() ? "" : verse[1].substring(0, Math.max(0, verse[1].lastIndexOf(' ')));
+            android.text.SpannableString styled = new android.text.SpannableString(text); // fala de Jesus, de Deus, dos profetas e dos discípulos em cores
+            for (int[] sp2 : VerseStyler.spans(text, book)) {
+                styled.setSpan(new android.text.style.ForegroundColorSpan(sp2[2]), sp2[0], sp2[1], android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            }
+            verseLayout = layout(styled, verseText, width);
+            haloLayout = layout(text, verseHalo, width); // o contorno branco usa o texto puro (mesma forma)
+            String label = book.isEmpty() ? "" : (VerseStyler.isNewTestament(book) ? "NOVO TESTAMENTO" : "VELHO TESTAMENTO");
+            labelText.setTextSize(size * 0.74f);
+            labelHalo.setTextSize(size * 0.74f);
+            labelHalo.setStrokeWidth(Math.max(2f, size * 0.16f));
+            labelLayout = label.isEmpty() ? null : layout(label, labelText, width);
+            labelHaloLayout = label.isEmpty() ? null : layout(label, labelHalo, width);
             refLayout = ref.isEmpty() ? null : layout(ref, refText, width);
             refHaloLayout = ref.isEmpty() ? null : layout(ref, refHalo, width);
             float scale = Math.max(0.5f, Math.min(3f, sp.getInt("verse_time", 100) / 100f)); // slider em ▦
             talkSeconds = Math.max(20f, Math.min(90f, 15f + text.length() * 0.17f)) * scale; // dá tempo de ler com calma
         }
 
-        private StaticLayout layout(String text, TextPaint paint, int width) {
+        private StaticLayout layout(CharSequence text, TextPaint paint, int width) {
             return StaticLayout.Builder.obtain(text, 0, text.length(), paint, width)
                     .setAlignment(Layout.Alignment.ALIGN_CENTER).build();
         }
@@ -621,7 +645,20 @@ final class Familiar {
             return state == ROAM || state == TALK ? (float) Math.sin(t * 3f) * 5 * d : 0f;
         }
 
-        // ---------- batalha da noite: a espada do painel contra a espada dos patos, até uma morrer ----------
+        // ---------- batalha da noite, no estilo Vagabond ----------
+        // tensão e jogo de pernas (passos curtos em linha reta), fintas, defesas, desvios, contra-ataques,
+        // câmera lenta nos cortes e um golpe final em que as duas se cruzam e só uma fica de pé.
+        private static final int D_INTRO = 0, D_FOOT = 1, D_ATTACK = 2, D_RESOLVE = 3, D_STANDOFF = 4, D_CROSS = 5, D_DEATH = 6, D_VICTORY = 7, D_HOME = 8;
+        private static final int R_TAKE = 0, R_PARRY = 1, R_DODGE = 2, R_COUNTER = 3;
+        private final float[] px = new float[2], py = new float[2], pa = new float[2], pvx = new float[2], pvy = new float[2];
+        private final float[] stam = new float[2], stagger = new float[2];
+        private final float[] footFromX = new float[2], footFromY = new float[2], footToX = new float[2], footToY = new float[2];
+        private int atkType, react, atkLeft, winner, resolveKind;
+        private boolean atkCrit, counterNext, feintBack, crossCut;
+        private float footT, footDur = 0.9f, holdT, holdDur = 0.5f, circleLeft, tension, cine, slowUntil, slowScale = 1f;
+        private float dashDx, dashDy, dashDist, dashTrav, dashSpeed, reactT, reactSide = 1f, reactFromX, reactFromY, footAngle, crossT, standoffT;
+        private final ArrayList<float[]> slashes = new ArrayList<>(); // x, y, ângulo (rad), comprimento, início
+
         private boolean isNight() {
             int hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY);
             return hour >= 19 || hour < 6; // de noite, depois das 19h
@@ -632,14 +669,13 @@ final class Familiar {
             return (float) Math.toDegrees(Math.atan2(ux, -uy));
         }
 
+        private static float clampF(float v, float lo, float hi) { return Math.max(lo, Math.min(hi, v)); }
+
         private void startDuel() {
             float[] st = host.swordState(); // a espada do painel de verdade: sai de lá e vai lutar
             dockX = st[0];
             dockY = st[1];
             duelH = st[2];
-            nx = dockX;
-            ny = dockY;
-            nang = 0f;
             host.setSwordHidden(true);
             duelOn = true;
             state = DUEL;
@@ -648,23 +684,27 @@ final class Familiar {
             blueDead = false;
             hp[0] = hpMax0 = 100f + level * 3f;
             hp[1] = hpMax1 = 120f;
-            attacker = rnd.nextInt(2);
-            comboLeft = 1 + rnd.nextInt(3);
+            stam[0] = stam[1] = 100f;
+            stagger[0] = stagger[1] = 0f;
+            px[0] = sx; py[0] = sy; pa[0] = ang;
+            px[1] = dockX; py[1] = dockY; pa[1] = 0f;
+            pvx[0] = pvy[0] = pvx[1] = pvy[1] = 0f;
             kvx[0] = kvy[0] = kvx[1] = kvy[1] = 0f;
+            nx = px[1]; ny = py[1]; nang = pa[1];
             spawnSparks(nx, ny, 14);
-            beginRound();
-        }
-
-        /** Escolhe o ponto da luta: cada espada vai pro seu lado dele e gira no lugar. */
-        private void beginRound() {
-            duelPhase = 0;
-            duelT = 0f;
-            float m = 190 * d;
+            float m = 230 * d;
             cxc = m + rnd.nextFloat() * Math.max(1f, w - 2 * m);
             cyc = m + rnd.nextFloat() * Math.max(1f, h - 2 * m);
-            nAngVel = 0f;
-            svx = 0f;
-            svy = 0f;
+            tension = 0f;
+            slowUntil = 0f;
+            slowScale = 1f;
+            slashes.clear();
+            counterNext = false;
+            attacker = rnd.nextInt(2);
+            duelPhase = D_INTRO;
+            duelT = 0f;
+            holdDur = 0.5f;
+            startFoot(270 * d, 0.9f); // vão pra posição da luta, uma de cada lado
         }
 
         private void endDuel() {
@@ -678,137 +718,351 @@ final class Familiar {
             blueDead = false;
         }
 
-        private void clampDuel() {
-            float m = 30 * d;
-            sx = Math.max(m, Math.min(w - m, sx));
-            sy = Math.max(m, Math.min(h - m, sy));
-            nx = Math.max(m, Math.min(w - m, nx));
-            ny = Math.max(m, Math.min(h - m, ny));
+        /** Um passo do jogo de pernas: cada espada anda em linha reta até o seu lado do ponto da luta. */
+        private void startFoot(float dist, float dur) {
+            footAngle = duelPhase == D_INTRO ? (float) (rnd.nextDouble() * Math.PI * 2) : footAngle + (rnd.nextFloat() - 0.5f) * 1.1f;
+            float m = 50 * d;
+            float ux = (float) Math.cos(footAngle), uy = (float) Math.sin(footAngle);
+            footToX[0] = clampF(cxc + ux * dist, m, w - m);
+            footToY[0] = clampF(cyc + uy * dist, m, h - m);
+            footToX[1] = clampF(cxc - ux * dist, m, w - m);
+            footToY[1] = clampF(cyc - uy * dist, m, h - m);
+            for (int i = 0; i < 2; i++) { footFromX[i] = px[i]; footFromY[i] = py[i]; }
+            footT = 0f;
+            footDur = dur;
+            holdT = 0f;
         }
 
-        private void duel(float dt) {
-            duelT += dt;
-            duelAge += dt;
-            switch (duelPhase) {
-                case 0: duelFaceOff(dt); break;
-                case 1: duelDash(dt); break;
-                case 2: duelAftermath(dt); break;
-                case 3: if (duelT >= 1.0f) { duelPhase = 4; duelT = 0f; } break; // a morte: explosão
-                case 4: // quem ganhou comemora girando
-                    if (loser == 1) ang += 900f * dt; else nang += 900f * dt;
-                    if (duelT >= 1.1f) { duelPhase = 5; duelT = 0f; }
-                    break;
-                default: duelHome(dt); break;
+        private float moveFoot(float dt) {
+            footT += dt;
+            float k = Math.min(1f, footT / Math.max(0.01f, footDur));
+            float e = k < 0.5f ? 2f * k * k : 1f - 2f * (1f - k) * (1f - k); // arranca e freia: peso, mas em linha reta
+            for (int i = 0; i < 2; i++) {
+                float ox = px[i], oy = py[i];
+                px[i] = footFromX[i] + (footToX[i] - footFromX[i]) * e;
+                py[i] = footFromY[i] + (footToY[i] - footFromY[i]) * e;
+                pvx[i] = dt > 0f ? (px[i] - ox) / dt : 0f;
+                pvy[i] = dt > 0f ? (py[i] - oy) / dt : 0f;
+            }
+            return k;
+        }
+
+        /** As duas se apontam; a ponta treme mais quanto maior a tensão. */
+        private void faceEachOther(boolean tremble) {
+            float ux = px[1] - px[0], uy = py[1] - py[0], len = Math.max(1f, (float) Math.hypot(ux, uy));
+            ux /= len;
+            uy /= len;
+            float tr = tremble ? (float) Math.sin(t * 37f) * (1.2f + 2.6f * tension) : 0f;
+            pa[0] = tipAngle(ux, uy) + tr;
+            pa[1] = tipUpAngle(-ux, -uy) - tr;
+        }
+
+        private void clampDuel() {
+            float m = 30 * d;
+            for (int i = 0; i < 2; i++) {
+                px[i] = clampF(px[i], m, w - m);
+                py[i] = clampF(py[i], m, h - m);
             }
         }
 
-        private void duelFaceOff(float dt) {
-            float side = 150 * d, k = Math.min(1f, 4.5f * dt);
-            if (!greenDead) { sx += ((cxc - side) - sx) * k; sy += (cyc - sy) * k; }
-            if (!blueDead) { nx += ((cxc + side) - nx) * k; ny += (cyc - ny) * k; }
-            nAngVel = Math.min(1300f, nAngVel + 2000f * dt);
-            ang += nAngVel * dt;
-            nang -= nAngVel * dt;
-            if (duelT >= 0.9f) startDash();
+        private void duel(float dtReal) {
+            float ts = t < slowUntil ? slowScale : 1f; // câmera lenta nos cortes
+            float dt = dtReal * ts;
+            duelT += dt;
+            duelAge += dtReal;
+            cine += ((duelPhase >= D_HOME ? 0f : 1f) - cine) * Math.min(1f, 3f * dtReal);
+            for (int i = 0; i < 2; i++) {
+                stagger[i] = Math.max(0f, stagger[i] - dt);
+                stam[i] = Math.min(100f, stam[i] + 9f * dt);
+            }
+            switch (duelPhase) {
+                case D_INTRO:
+                case D_FOOT: duelFoot(dt); break;
+                case D_ATTACK: duelAttack(dt); break;
+                case D_RESOLVE: duelResolve(dt); break;
+                case D_STANDOFF: duelStandoff(dt); break;
+                case D_CROSS: duelCross(dt); break;
+                case D_DEATH: duelDeath(dt); break;
+                case D_VICTORY: duelVictory(dt); break;
+                default: duelHome(dt); break;
+            }
+            sx = px[0]; sy = py[0]; ang = pa[0];
+            nx = px[1]; ny = py[1]; nang = pa[1];
+            svx = pvx[0];
+            svy = pvy[0];
+            for (int i = slashes.size() - 1; i >= 0; i--) if (t - slashes.get(i)[4] > 0.5f) slashes.remove(i);
+        }
+
+        private void duelFoot(float dt) {
+            float k = moveFoot(dt);
+            faceEachOther(true);
+            if (duelPhase == D_FOOT) {
+                circleLeft -= dt;
+                tension = Math.min(1f, tension + 0.3f * dt);
+            }
+            if (k < 1f) return;
+            pvx[0] = pvy[0] = pvx[1] = pvy[1] = 0f;
+            holdT += dt;
+            if (holdT < holdDur) return;
+            if (duelPhase == D_INTRO) { duelPhase = D_FOOT; circleLeft = 1.0f + rnd.nextFloat() * 1.8f; }
+            if (circleLeft > 0f) {
+                startFoot((170 + rnd.nextFloat() * 70) * d, 0.2f);
+                holdDur = 0.15f + rnd.nextFloat() * 0.3f;
+            } else {
+                decideNext();
+            }
+        }
+
+        private void backToFoot() {
+            duelPhase = D_FOOT;
+            circleLeft = 0.8f + rnd.nextFloat() * 1.6f;
+            startFoot((190 + rnd.nextFloat() * 60) * d, 0.2f);
+            holdDur = 0.2f;
+            duelT = 0f;
+        }
+
+        private void decideNext() {
+            float low = Math.min(hp[0] / hpMax0, hp[1] / hpMax1);
+            if (low < 0.3f && rnd.nextFloat() < 0.55f) { startStandoff(); return; } // o golpe final
+            if (counterNext) counterNext = false;
+            else attacker = stam[0] * (0.6f + rnd.nextFloat()) >= stam[1] * (0.6f + rnd.nextFloat()) ? 0 : 1;
+            launchAttack();
+        }
+
+        private void launchAttack() {
+            float r0 = rnd.nextFloat();
+            atkType = r0 < 0.5f ? 0 : r0 < 0.75f ? 1 : 2; // estocada, finta ou golpe duplo
+            atkLeft = atkType == 2 ? 2 : 1;
+            feintBack = false;
+            atkCrit = false;
+            chooseReaction();
+            startDash();
+        }
+
+        private void chooseReaction() {
+            int def = 1 - attacker;
+            float r1 = rnd.nextFloat() + (stam[def] < 30f ? 0.25f : 0f); // cansado reage pior
+            if (atkType == 1) react = r1 < 0.7f ? (rnd.nextBoolean() ? R_DODGE : R_PARRY) : R_TAKE; // na finta ele "morde" 70% das vezes
+            else react = r1 < 0.32f ? R_PARRY : r1 < 0.58f ? R_DODGE : r1 < 0.72f ? R_COUNTER : R_TAKE;
+            reactSide = rnd.nextBoolean() ? 1f : -1f;
         }
 
         private void startDash() {
-            float ax = attacker == 0 ? sx : nx, ay = attacker == 0 ? sy : ny;
-            float tx2 = attacker == 0 ? nx : sx, ty2 = attacker == 0 ? ny : sy;
-            float ux = tx2 - ax, uy = ty2 - ay, len = Math.max(1f, (float) Math.hypot(ux, uy));
-            dirX = ux / len;
-            dirY = uy / len;
-            if (attacker == 0) { ang = tipAngle(dirX, dirY); nang = tipUpAngle(-dirX, -dirY); }
-            else { nang = tipUpAngle(dirX, dirY); ang = tipAngle(-dirX, -dirY); }
-            duelPhase = 1;
-            duelT = 0f;
-        }
-
-        private void duelDash(float dt) {
-            float ax = attacker == 0 ? sx : nx, ay = attacker == 0 ? sy : ny;
-            float tx2 = attacker == 0 ? nx : sx, ty2 = attacker == 0 ? ny : sy;
-            float ux = tx2 - ax, uy = ty2 - ay, len = Math.max(1f, (float) Math.hypot(ux, uy));
-            dirX = ux / len;
-            dirY = uy / len;
-            float step = 780 * d * Math.min(1f, 0.5f + duelT * 3.5f) * dt; // arranca com peso
-            if (attacker == 0) {
-                sx += dirX * step;
-                sy += dirY * step;
-                ang = tipAngle(dirX, dirY);
-                svx = dirX * 780 * d;
-                svy = dirY * 780 * d;
-            } else {
-                nx += dirX * step;
-                ny += dirY * step;
-                nang = tipUpAngle(dirX, dirY);
-                svx = 0f;
-                svy = 0f;
-            }
-            if (len - step < 52 * d || duelT > 1.2f) duelResolve();
-        }
-
-        /** A investida chegou: defesa (choque), ou golpe que tira vida. */
-        private void duelResolve() {
             int def = 1 - attacker;
-            float defX = def == 0 ? sx : nx, defY = def == 0 ? sy : ny;
-            clashX = (sx + nx) / 2f;
-            clashY = (sy + ny) / 2f;
-            boolean parry = rnd.nextFloat() < 0.30f;
-            lastHit = !parry;
-            if (parry) {
-                spawnSparks(clashX, clashY, 24);
-                kvx[attacker] = -dirX * 300 * d;
-                kvy[attacker] = -dirY * 300 * d;
-                kvx[def] = dirX * 220 * d;
-                kvy[def] = dirY * 220 * d;
-            } else {
-                hp[def] -= 11f + rnd.nextFloat() * 14f + (attacker == 0 ? level * 0.35f : 5f);
-                spawnSparks(defX, defY, 28);
-                hitStop = 0.08f;
-                kvx[def] = dirX * 380 * d;
-                kvy[def] = dirY * 380 * d;
-                kvx[attacker] = -dirX * 110 * d;
-                kvy[attacker] = -dirY * 110 * d;
-            }
-            svx = 0f;
-            svy = 0f;
-            duelPhase = 2;
+            float ux = px[def] - px[attacker], uy = py[def] - py[attacker], len = Math.max(1f, (float) Math.hypot(ux, uy));
+            dashDx = ux / len;
+            dashDy = uy / len;
+            dashDist = atkType == 1 && !feintBack ? len * 0.5f : Math.max(60 * d, len - 44 * d); // a finta só vai até a metade
+            dashDist = Math.max(40 * d, dashDist);
+            dashSpeed = 1000 * d;
+            dashTrav = 0f;
+            reactT = 0f;
+            reactFromX = px[def];
+            reactFromY = py[def];
+            if (attacker == 0) { pa[0] = tipAngle(dashDx, dashDy); pa[1] = tipUpAngle(-dashDx, -dashDy); }
+            else { pa[1] = tipUpAngle(dashDx, dashDy); pa[0] = tipAngle(-dashDx, -dashDy); }
+            duelPhase = D_ATTACK;
             duelT = 0f;
         }
 
-        private void duelAftermath(float dt) {
+        private void duelAttack(float dt) {
+            int def = 1 - attacker;
+            if (duelT < 0.22f) { // um instante de silêncio: a lâmina recua um pouquinho antes de sair
+                px[attacker] -= dashDx * 80 * d * dt;
+                py[attacker] -= dashDy * 80 * d * dt;
+                pvx[0] = pvy[0] = pvx[1] = pvy[1] = 0f;
+                return;
+            }
+            float tt = duelT - 0.22f;
+            float step = Math.min(dashDist - dashTrav, dashSpeed * Math.min(1f, 0.35f + tt * 5f) * dt); // arranca com peso
+            px[attacker] += dashDx * step;
+            py[attacker] += dashDy * step;
+            dashTrav += step;
+            pvx[attacker] = dt > 0f ? dashDx * step / dt : 0f;
+            pvy[attacker] = dt > 0f ? dashDy * step / dt : 0f;
+            reactT += dt; // reação de quem defende
+            float ox = px[def], oy = py[def];
+            float e = Math.min(1f, reactT / (react == R_PARRY ? 0.15f : 0.22f));
+            if (react == R_DODGE || react == R_COUNTER) { // sai do caminho, de lado
+                px[def] = reactFromX - dashDy * reactSide * 150 * d * e;
+                py[def] = reactFromY + dashDx * reactSide * 150 * d * e;
+            } else if (react == R_PARRY) { // dá um passo à frente e levanta a lâmina
+                px[def] = reactFromX - dashDx * 36 * d * e;
+                py[def] = reactFromY - dashDy * 36 * d * e;
+            }
+            pvx[def] = dt > 0f ? (px[def] - ox) / dt : 0f;
+            pvy[def] = dt > 0f ? (py[def] - oy) / dt : 0f;
+            if (dashTrav >= dashDist - 0.5f) endDash();
+        }
+
+        private void endDash() {
+            int def = 1 - attacker;
+            pvx[0] = pvy[0] = pvx[1] = pvy[1] = 0f;
+            if (atkType == 1 && !feintBack) { // finta
+                feintBack = true;
+                if (react == R_TAKE) { // não caiu na finta: cada um volta pro seu lugar
+                    stam[attacker] -= 6f;
+                    backToFoot();
+                } else {               // caiu: ficou aberto, e a estocada de verdade vem certeira
+                    stagger[def] = 0.7f;
+                    atkType = 0;
+                    react = R_TAKE;
+                    atkCrit = rnd.nextFloat() < 0.4f;
+                    startDash();
+                }
+                return;
+            }
+            float hx = px[def], hy = py[def];
+            if (react == R_DODGE || react == R_COUNTER) { // errou: passou direto
+                spawnSparks(px[attacker], py[attacker], 6);
+                stagger[attacker] = 0.55f;
+                stam[attacker] -= 12f;
+                resolveKind = 3;
+                if (react == R_COUNTER) { // quem desviou contra-ataca na hora
+                    attacker = def;
+                    counterNext = true;
+                    atkType = 0;
+                    atkLeft = 1;
+                    react = rnd.nextFloat() < 0.3f ? R_PARRY : R_TAKE;
+                    atkCrit = rnd.nextFloat() < 0.25f;
+                    reactSide = rnd.nextBoolean() ? 1f : -1f;
+                }
+            } else if (react == R_PARRY && rnd.nextFloat() > 0.18f) { // defesa: choque de lâminas
+                float mx = (px[0] + px[1]) / 2f, my = (py[0] + py[1]) / 2f;
+                spawnSparks(mx, my, 28);
+                clashX = mx;
+                clashY = my;
+                kvx[attacker] = -dashDx * 330 * d;
+                kvy[attacker] = -dashDy * 330 * d;
+                kvx[def] = dashDx * 210 * d;
+                kvy[def] = dashDy * 210 * d;
+                stam[0] -= 12f;
+                stam[1] -= 12f;
+                resolveKind = 2;
+            } else { // acertou
+                boolean crit = atkCrit || rnd.nextFloat() < 0.22f;
+                hp[def] -= (9f + rnd.nextFloat() * 13f + (attacker == 0 ? level * 0.3f : 4f)) * (crit ? 1.8f : 1f);
+                spawnSparks(hx, hy, crit ? 40 : 24);
+                slashes.add(new float[]{hx, hy, (float) Math.atan2(dashDy, dashDx) + (rnd.nextFloat() - 0.5f) * 0.5f, (crit ? 280f : 180f) * d, t});
+                hitStop = crit ? 0.14f : 0.07f;
+                if (crit) { // corte fundo: câmera lenta e respingo de tinta
+                    slowUntil = t + 0.6f;
+                    slowScale = 0.22f;
+                    spawnInk(hx, hy, 18);
+                }
+                float knock = (crit ? 500f : 340f) * d;
+                kvx[def] = dashDx * knock;
+                kvy[def] = dashDy * knock;
+                kvx[attacker] = -dashDx * 90 * d;
+                kvy[attacker] = -dashDy * 90 * d;
+                stagger[def] = crit ? 0.8f : 0.35f;
+                resolveKind = 1;
+            }
+            duelPhase = D_RESOLVE;
+            duelT = 0f;
+        }
+
+        private void duelResolve(float dt) {
             float k = (float) Math.pow(0.03, dt);
-            for (int i = 0; i < 2; i++) { kvx[i] *= k; kvy[i] *= k; }
-            if (!greenDead) { sx += kvx[0] * dt; sy += kvy[0] * dt; }
-            if (!blueDead) { nx += kvx[1] * dt; ny += kvy[1] * dt; }
+            for (int i = 0; i < 2; i++) {
+                kvx[i] *= k;
+                kvy[i] *= k;
+                px[i] += kvx[i] * dt;
+                py[i] += kvy[i] * dt;
+                pvx[i] = kvx[i];
+                pvy[i] = kvy[i];
+            }
             clampDuel();
-            ang += wrap(0f - ang) * Math.min(1f, 5f * dt);
-            nang += wrap(0f - nang) * Math.min(1f, 5f * dt);
-            if (duelAge > 45f) { // luta muito longa: a que está mais fraca cai
-                if (hp[0] <= hp[1]) hp[0] = 0f; else hp[1] = 0f;
+            faceEachOther(false);
+            if (duelT < (resolveKind == 1 ? 0.6f : 0.4f)) return;
+            if (hp[0] <= 0f || hp[1] <= 0f) { loser = hp[0] <= 0f ? 0 : 1; startDeath(); return; }
+            if (counterNext) { counterNext = false; feintBack = false; startDash(); return; } // contra-ataque
+            atkLeft--;
+            if (atkLeft > 0 && resolveKind != 2) { chooseReaction(); startDash(); return; } // segundo golpe do golpe duplo
+            backToFoot();
+        }
+
+        private void startStandoff() {
+            duelPhase = D_STANDOFF;
+            duelT = 0f;
+            standoffT = 0f;
+            startFoot(310 * d, 0.55f); // se afastam, uma de cada lado
+        }
+
+        private void duelStandoff(float dt) {
+            float k = moveFoot(dt);
+            faceEachOther(true);
+            tension = Math.min(1f, tension + 0.9f * dt);
+            if (k < 1f) return;
+            pvx[0] = pvy[0] = pvx[1] = pvy[1] = 0f;
+            standoffT += dt;
+            if (standoffT >= 1.3f) startCross(); // silêncio de tensão, depois o golpe único
+        }
+
+        private void startCross() {
+            float g = Math.max(0.05f, hp[0] / hpMax0), bb = Math.max(0.05f, hp[1] / hpMax1);
+            loser = rnd.nextFloat() < g / (g + bb) ? 1 : 0; // a mais forte tem mais chance
+            crossT = 0f;
+            crossCut = false;
+            for (int i = 0; i < 2; i++) { footFromX[i] = px[i]; footFromY[i] = py[i]; }
+            footToX[0] = px[1]; footToY[0] = py[1];
+            footToX[1] = px[0]; footToY[1] = py[0];
+            float ux = px[1] - px[0], uy = py[1] - py[0], len = Math.max(1f, (float) Math.hypot(ux, uy));
+            dashDx = ux / len;
+            dashDy = uy / len;
+            pa[0] = tipAngle(dashDx, dashDy);
+            pa[1] = tipUpAngle(-dashDx, -dashDy);
+            slowUntil = t + 0.9f;
+            slowScale = 0.2f;
+            duelPhase = D_CROSS;
+            duelT = 0f;
+        }
+
+        private void duelCross(float dt) {
+            crossT += dt;
+            float e = Math.min(1f, crossT / 0.32f);
+            for (int i = 0; i < 2; i++) { // as duas se cruzam em linha reta e trocam de lado
+                float ox = px[i], oy = py[i];
+                px[i] = footFromX[i] + (footToX[i] - footFromX[i]) * e;
+                py[i] = footFromY[i] + (footToY[i] - footFromY[i]) * e;
+                pvx[i] = dt > 0f ? (px[i] - ox) / dt : 0f;
+                pvy[i] = dt > 0f ? (py[i] - oy) / dt : 0f;
             }
-            if (duelT < (comboLeft > 0 && lastHit ? 0.22f : 0.5f)) return;
-            if (hp[0] <= 0f || hp[1] <= 0f) { // uma morreu
-                loser = hp[0] <= 0f ? 0 : 1;
-                float lx = loser == 0 ? sx : nx, ly = loser == 0 ? sy : ny;
-                clashX = lx;
-                clashY = ly;
-                spawnSparks(lx, ly, 70);
-                hitStop = 0.12f;
-                if (loser == 0) greenDead = true; else blueDead = true;
-                duelPhase = 3;
-                duelT = 0f;
-                return;
+            if (e >= 0.5f && !crossCut) { // o corte: uma linha branca cruza a tela
+                crossCut = true;
+                float mx = (footFromX[0] + footFromX[1]) / 2f, my = (footFromY[0] + footFromY[1]) / 2f;
+                slashes.add(new float[]{mx, my, (float) Math.atan2(dashDy, dashDx) + 0.9f, 900f * d, t});
+                spawnSparks(mx, my, 40);
+                hitStop = 0.1f;
             }
-            if (comboLeft > 0 && lastHit) { // combo: investe de novo sem recuar
-                comboLeft--;
-                startDash();
-                return;
+            if (e >= 1f) {
+                pvx[0] = pvy[0] = pvx[1] = pvy[1] = 0f;
+                if (crossT >= 0.32f + 0.9f) { hp[loser] = 0f; startDeath(); } // as duas paradas, de costas; então uma cai
             }
-            // acabou o combo: quem apanhou revida em 45% das vezes; senão sorteia. Novo combo de 1 a 4 golpes
-            attacker = lastHit && rnd.nextFloat() < 0.45f ? 1 - attacker : rnd.nextInt(2);
-            comboLeft = 1 + rnd.nextInt(4);
-            beginRound();
+        }
+
+        private void startDeath() {
+            float lx = px[loser], ly = py[loser];
+            spawnSparks(lx, ly, 70);
+            spawnInk(lx, ly, 40);
+            hitStop = 0.12f;
+            if (loser == 0) greenDead = true; else blueDead = true;
+            winner = 1 - loser;
+            clashX = lx;
+            clashY = ly;
+            slashes.add(new float[]{lx, ly, (float) Math.atan2(dashDy, dashDx), 320 * d, t});
+            duelPhase = D_DEATH;
+            duelT = 0f;
+        }
+
+        private void duelDeath(float dt) {
+            pvx[0] = pvy[0] = pvx[1] = pvy[1] = 0f;
+            if (duelT >= 1.2f) { duelPhase = D_VICTORY; duelT = 0f; }
+        }
+
+        private void duelVictory(float dt) { // quem venceu respira e faz só um giro lento
+            pa[winner] += 200f * dt * (winner == 0 ? 1f : -1f);
+            if (duelT >= 1.6f) { duelPhase = D_HOME; duelT = 0f; }
         }
 
         private void duelHome(float dt) {
@@ -820,22 +1074,37 @@ final class Familiar {
                 }
                 return;
             }
-            // a espada do painel venceu: volta voando pro lugar dela
-            float k = Math.min(1f, 3.5f * dt);
-            nx += (dockX - nx) * k;
-            ny += (dockY - ny) * k;
-            nang += wrap(0f - nang) * Math.min(1f, 6f * dt);
-            if (greenDead && duelT > 1.0f) { // a espada dos patos renasce em outro lugar da tela
-                sx = 80 * d + rnd.nextFloat() * Math.max(1f, w - 160 * d);
-                sy = 80 * d + rnd.nextFloat() * Math.max(1f, h - 160 * d);
-                ang = 0f;
+            float dist = (float) Math.hypot(dockX - px[1], dockY - py[1]); // a do painel venceu: volta em linha reta
+            float step = Math.min(dist, 700 * d * dt);
+            if (dist > 1f) { px[1] += (dockX - px[1]) / dist * step; py[1] += (dockY - py[1]) / dist * step; }
+            pa[1] += wrap(0f - pa[1]) * Math.min(1f, 6f * dt);
+            pvx[1] = pvy[1] = 0f;
+            if (greenDead && duelT > 1.0f) { // a espada dos patos renasce em outro ponto da tela
+                px[0] = 80 * d + rnd.nextFloat() * Math.max(1f, w - 160 * d);
+                py[0] = 80 * d + rnd.nextFloat() * Math.max(1f, h - 160 * d);
+                pa[0] = 0f;
                 greenDead = false;
                 appearAt = t;
-                spawnSparks(sx, sy, 16);
+                spawnSparks(px[0], py[0], 16);
             }
-            if (Math.hypot(dockX - nx, dockY - ny) < 6 * d || duelT > 2.2f) {
+            if (dist < 6 * d || duelT > 2.4f) {
                 host.setSwordHidden(false); // reaparece no painel
                 endDuel();
+            }
+        }
+
+        private void spawnInk(float x, float y, int n) {
+            for (int i = 0; i < n; i++) {
+                Spark s = new Spark();
+                double a = rnd.nextDouble() * Math.PI * 2;
+                float speed = (60 + rnd.nextFloat() * 260) * d;
+                s.x = x;
+                s.y = y;
+                s.vx = (float) Math.cos(a) * speed;
+                s.vy = (float) Math.sin(a) * speed;
+                s.life = 1.0f;
+                s.color = 0xFF111111;
+                sparks.add(s);
             }
         }
 
@@ -844,8 +1113,9 @@ final class Familiar {
             if (!duelOn || s == null || blueDead) return;
             s.frame(src, (int) (t * 1000f / s.ms) % s.frames);
             float hh = duelH > 0f ? duelH : swordLen(), ww = hh * s.aspect;
+            float shake = stagger[1] > 0f ? (float) Math.sin(t * 60f) * 3 * d : 0f; // abalada: treme
             c.save();
-            c.translate(nx, ny);
+            c.translate(nx + shake, ny);
             c.rotate(nang);
             dst.set(-ww / 2f, -hh / 2f, ww / 2f, hh / 2f);
             bmp.setAlpha(255);
@@ -853,7 +1123,7 @@ final class Familiar {
             c.restore();
         }
 
-        /** Rastro azul da espada de raio, na investida. */
+        /** Rastro azul da espada de raio, nas investidas. */
         private void drawBlueTrail(Canvas c) {
             p.setStyle(Paint.Style.STROKE);
             p.setStrokeCap(Paint.Cap.ROUND);
@@ -875,21 +1145,16 @@ final class Familiar {
             }
         }
 
-        /** Anel de choque; na morte, dois anéis grandes. */
+        /** Anel de choque (defesa) e anéis da morte. */
         private void drawClash(Canvas c) {
             if (!duelOn) return;
-            if (duelPhase == 2 && duelT <= 0.4f) {
+            if (duelPhase == D_RESOLVE && resolveKind == 2 && duelT <= 0.4f) {
                 float life = 1f - duelT / 0.4f;
                 p.setStyle(Paint.Style.STROKE);
                 p.setStrokeWidth(4 * d * life + 1f);
                 p.setColor(Color.argb((int) (230 * life), 235, 245, 255));
                 c.drawCircle(clashX, clashY, 20 * d + duelT * 420 * d, p);
-                if (duelT < 0.12f) {
-                    p.setStyle(Paint.Style.FILL);
-                    p.setColor(Color.argb((int) (140 * (1f - duelT / 0.12f)), 255, 255, 255));
-                    c.drawCircle(clashX, clashY, 60 * d, p);
-                }
-            } else if (duelPhase == 3) {
+            } else if (duelPhase == D_DEATH) {
                 for (int i = 0; i < 2; i++) {
                     float life = Math.max(0f, 1f - (duelT - i * 0.18f) / 0.9f);
                     p.setStyle(Paint.Style.STROKE);
@@ -900,8 +1165,48 @@ final class Familiar {
             }
         }
 
+        /** Tela escurecida e vinheta que fecha no centro: quanto maior a tensão, mais escuro nas bordas. */
+        private void drawDuelFx(Canvas c) {
+            if (cine <= 0.01f) return;
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Color.argb((int) (70 * cine), 0, 0, 0));
+            c.drawRect(0, 0, w, h, p);
+            float a = (0.35f + 0.65f * tension) * cine;
+            p.setShader(new RadialGradient(w / 2f, h / 2f, Math.max(w, h) * 0.7f, 0x00000000, Color.argb((int) (170 * a), 0, 0, 0), Shader.TileMode.CLAMP));
+            c.drawRect(0, 0, w, h, p);
+            p.setShader(null);
+        }
+
+        /** Riscos de corte, brancos com contorno preto, como num mangá. */
+        private void drawSlashes(Canvas c) {
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeCap(Paint.Cap.ROUND);
+            for (float[] s : slashes) {
+                float life = 1f - (t - s[4]) / 0.5f;
+                if (life <= 0f) continue;
+                float hx = (float) Math.cos(s[2]) * s[3] / 2f, hy = (float) Math.sin(s[2]) * s[3] / 2f;
+                int al = (int) (255 * Math.min(1f, life * 1.6f));
+                p.setStrokeWidth(9 * d * life + 2f);
+                p.setColor(Color.argb(al, 0, 0, 0));
+                c.drawLine(s[0] - hx, s[1] - hy, s[0] + hx, s[1] + hy, p);
+                p.setStrokeWidth(3.6f * d * life + 1f);
+                p.setColor(Color.argb(al, 255, 255, 255));
+                c.drawLine(s[0] - hx, s[1] - hy, s[0] + hx, s[1] + hy, p);
+            }
+        }
+
+        /** Faixas pretas de cinema em cima e embaixo durante a luta. */
+        private void drawCinema(Canvas c) {
+            if (cine <= 0.01f) return;
+            float bar = h * 0.075f * cine;
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(0xFF000000);
+            c.drawRect(0, 0, w, bar, p);
+            c.drawRect(0, h - bar, w, h, p);
+        }
+
         private void drawDuelBars(Canvas c) {
-            if (!duelOn || duelPhase >= 4) return;
+            if (!duelOn || cine < 0.5f || duelPhase == D_STANDOFF || duelPhase == D_CROSS || duelPhase >= D_DEATH) return;
             drawBar(c, sx, sy - 76 * d, hp[0] / hpMax0, 0xFF7CFF8A, greenDead);
             drawBar(c, nx, ny - (duelH > 0f ? duelH / 2f : 56 * d) - 18 * d, hp[1] / hpMax1, 0xFF6FB6FF, blueDead);
         }
@@ -909,7 +1214,7 @@ final class Familiar {
         private void drawBar(Canvas c, float x, float y, float frac, int color, boolean dead) {
             if (dead) return;
             frac = Math.max(0f, Math.min(1f, frac));
-            float bw = 52 * d, bh = 5 * d;
+            float bw = 46 * d, bh = 4 * d;
             p.setStyle(Paint.Style.FILL);
             p.setColor(0xCC000000);
             r.set(x - bw / 2f - 1.5f * d, y - 1.5f * d, x + bw / 2f + 1.5f * d, y + bh + 1.5f * d);
@@ -926,7 +1231,7 @@ final class Familiar {
         private void updateTrail() {
             if (Math.hypot(svx, svy) > 90 * d) trail.add(new float[]{sx, sy + bobNow(), t, ang});
             while (!trail.isEmpty() && t - trail.get(0)[2] > 0.4f) trail.remove(0);
-            if (duelOn && duelPhase == 1 && attacker == 1) trail2.add(new float[]{nx, ny, t});
+            if (duelOn && Math.hypot(pvx[1], pvy[1]) > 150 * d) trail2.add(new float[]{nx, ny, t});
             while (!trail2.isEmpty() && t - trail2.get(0)[2] > 0.4f) trail2.remove(0);
         }
 
@@ -939,6 +1244,8 @@ final class Familiar {
             t += dt;
             if (swordSheet != null) { // só começa quando a espada terminou de carregar
                 update(dt);
+                if (!duelOn && cine > 0f) cine = Math.max(0f, cine - dt * 2f); // as faixas do cinema saem devagar
+                drawDuelFx(c);
                 drawAlucard(c);
                 drawDuck(c);
                 drawTrail(c);
@@ -949,6 +1256,8 @@ final class Familiar {
                 drawLevelUp(c);
                 drawClash(c);
                 drawDuelBars(c);
+                drawSlashes(c);
+                drawCinema(c);
                 drawBubble(c);
             }
             postInvalidateOnAnimation(); // acompanha a tela: 50 a 60 quadros por segundo
@@ -1116,7 +1425,8 @@ final class Familiar {
             if (state != TALK || verseLayout == null) return;
             float padX = 14 * d, padY = 10 * d, gap = 4 * d;
             float refH = refLayout != null ? refLayout.getHeight() + gap : 0f;
-            float bw = verseLayout.getWidth() + 2 * padX, bh = verseLayout.getHeight() + refH + 2 * padY;
+            float labelH = labelLayout != null ? labelLayout.getHeight() + gap : 0f;
+            float bw = verseLayout.getWidth() + 2 * padX, bh = verseLayout.getHeight() + refH + labelH + 2 * padY;
             float swordHalf = swordLen() / 2f;
             float bx = Math.max(8 * d, Math.min(sx - bw / 2f, w - bw - 8 * d));
             float by = sy - swordHalf - bh - 18 * d;
@@ -1147,6 +1457,11 @@ final class Familiar {
             c.drawRect(tailX - 8 * d, baseY - (below ? 0f : 2.4f * d), tailX + 8 * d, baseY + (below ? 2.4f * d : 0f), p);
             c.save();
             c.translate(bx + padX, by + padY);
+            if (labelLayout != null) { // "NOVO TESTAMENTO" ou "VELHO TESTAMENTO" em cima do versículo
+                labelHaloLayout.draw(c);
+                labelLayout.draw(c);
+                c.translate(0, labelLayout.getHeight() + gap);
+            }
             haloLayout.draw(c);   // contorno branco primeiro
             verseLayout.draw(c);  // letra preta por cima
             if (refLayout != null) {

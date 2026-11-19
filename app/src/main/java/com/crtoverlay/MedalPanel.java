@@ -74,7 +74,7 @@ final class MedalPanel extends View {
         this.viaAccessibility = viaAccessibility;
         this.sp = sp;
         dens = ctx.getResources().getDisplayMetrics().density;
-        d = dens * Math.max(0.5f, Math.min(1f, sp.getInt("panel_scale", 80) / 100f));
+        d = dens * Math.max(0.5f, Math.min(1f, sp.getInt("panel_scale", 80) / 100f)) * 0.78f; // menor que o principal
         w = Math.round((PW + GAP) * d);
         h = Math.round(PH * d);
         tp.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
@@ -101,8 +101,8 @@ final class MedalPanel extends View {
         lp = new WindowManager.LayoutParams(w, h,
                 viaAccessibility ? WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY : WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-                PixelFormat.TRANSLUCENT);
+                        | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+                PixelFormat.TRANSLUCENT); // IN_SCREEN: mesma referência de altura do painel principal
         lp.gravity = Gravity.TOP | Gravity.START;
         lp.x = Math.round(12 * dens);
         lp.y = Math.max(0, (dm.heightPixels - h) / 2);

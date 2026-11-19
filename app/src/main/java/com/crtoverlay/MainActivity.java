@@ -445,6 +445,7 @@ public class MainActivity extends Activity {
             if (on) ed.putBoolean("perf_on", false);
             ed.apply();
         }));
+        box.addView(dialogButton("Biblioteca de livros (PDF)", v -> startActivity(new Intent(this, BookActivity.class))));
         box.addView(dialogButton("Botões da gaveta (você escolhe)", v -> showDrawerDialog()));
         box.addView(dialogButton("TV de vídeo (playlists por pasta)", v -> showTvDialog()));
         box.addView(switchRow("Analisador de espectro (pede permissão de áudio)", sp.getBoolean("spectrum_on", true), (b, on) -> {
