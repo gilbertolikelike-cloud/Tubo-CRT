@@ -553,7 +553,7 @@ public class BobPanel extends View implements Familiar.Host {
             applyWindow(true);
             ensureSky();
             animateTo(1f, true);
-            handler.postDelayed(autoClose, AUTO_CLOSE_MS);
+            if (sp.getBoolean("panel_autoclose", false)) handler.postDelayed(autoClose, AUTO_CLOSE_MS); // padrão: fica aberto até você fechar
         } else {
             open = false;
             if (animated && anim > 0f) {
@@ -1423,6 +1423,16 @@ public class BobPanel extends View implements Familiar.Host {
             };
         }
         medalPanel.toggle(panX, panY, panW, panH);
+    }
+
+    /** A cada 30 min: abre o painel principal e a Bíblia direto no capítulo que começou a tocar. */
+    void revealBible(int book, int chap) {
+        if (!open) setOpen(true, true);
+        handler.postDelayed(() -> {
+            if (medalPanel == null) openMedals();
+            else if (!medalPanel.isShowing()) medalPanel.toggle(panX, panY, panW, panH);
+            if (medalPanel != null) medalPanel.openAt(book, chap);
+        }, 450);
     }
 
     private ClickerPanel clickerPanel;

@@ -70,21 +70,17 @@ final class BiblePanel extends View {
     Runnable onResize;
 
     private volatile Verses verses;
-    private volatile Map<Integer, Uri> files = new java.util.HashMap<>();
+    private final BibleAudio audio;
     private int screen = COVER, selBook, selChap;
     private float listScroll, textScroll, startScroll;
     private StaticLayout layout;
     private int[] vStart = new int[0], vEnd = new int[0];
     private int hiVerse = -1;
-    private byte[] readBits = new byte[(1189 + 7) / 8 + 1];
-    private int readCount;
     private ArrayList<int[]> rows = new ArrayList<>();       // {tipo(0 cab,1 livro), índice}
 
-    private android.media.MediaPlayer mp;
-    private boolean prepared, playing, follow = true, starting;
-    private String status = "";
+    private boolean follow = true;
     private long followPausedUntil;
-    private int audioBook = -1, audioChap = -1;
+    private int pendingBook = -1, pendingChap = -1;
 
     private int mode, hitAction;
     private float downX, downY;
@@ -96,6 +92,7 @@ final class BiblePanel extends View {
         this.wm = wm;
         this.viaAccessibility = viaAccessibility;
         this.sp = sp;
+        this.audio = BibleAudio.get(ctx);
         dens = ctx.getResources().getDisplayMetrics().density;
         DisplayMetrics dm = new DisplayMetrics();
         wm.getDefaultDisplay().getMetrics(dm);
@@ -124,11 +121,6 @@ final class BiblePanel extends View {
         } catch (java.io.IOException | RuntimeException ignored) {
             pipe = null;
         }
-        try {
-            byte[] b = Base64.decode(sp.getString("bible_read", ""), Base64.NO_WRAP);
-            System.arraycopy(b, 0, readBits, 0, Math.min(b.length, readBits.length));
-        } catch (RuntimeException ignored) { /* ainda não leu nada */ }
-        recount();
         lp = new WindowManager.LayoutParams(w, h,
                 viaAccessibility ? WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY : WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
@@ -166,15 +158,16 @@ final class BiblePanel extends View {
         final Context app = ctx.getApplicationContext();
         new Thread(() -> {
             Verses v = Verses.shared(app);
-            Map<Integer, Uri> f = VoiceLibrary.index(app, sp);
+            audio.reload();
             post(() -> {
                 verses = v;
-                files = f;
                 if (v != null) {
                     selBook = Math.min(v.bookCount() - 1, sp.getInt("bible_book", 0));
                     selChap = Math.min(v.chapterCount(selBook) - 1, sp.getInt("bible_chap", 0));
                     buildRows();
+                    if (pendingBook >= 0) { int pb = pendingBook, pc = pendingChap; pendingBook = -1; openChapter(pb, pc); }
                 }
+                audio.listener = audioListener;
                 invalidate();
             });
         }).start();
@@ -183,7 +176,7 @@ final class BiblePanel extends View {
     void close() {
         if (!showing || closing) return;
         closing = true;
-        stopAudio();
+        audio.listener = null;
         setLayerType(LAYER_TYPE_HARDWARE, null);
         animate().translationX(w - 28 * d).alpha(0f).setDuration(240).setInterpolator(new DecelerateInterpolator(1.5f))
                 .withEndAction(() -> {
@@ -196,7 +189,7 @@ final class BiblePanel extends View {
     void closeNow() {
         handler.removeCallbacksAndMessages(null);
         animate().cancel();
-        stopAudio();
+        audio.listener = null;
         if (!showing) return;
         showing = false;
         closing = false;
@@ -216,22 +209,24 @@ final class BiblePanel extends View {
         }
     }
 
-    private void recount() {
-        int n = 0;
-        for (int g = 1; g <= 1189; g++) if (isRead(g)) n++;
-        readCount = n;
+    private boolean isRead(int g) { return audio.isRead(g); }
+
+    private boolean complete() { return audio.readCount() >= 1189; }
+
+    boolean isShowing() { return showing && !closing; }
+
+    /** A cada 30 min o app abre a Bíblia direto no capítulo da vez. */
+    void openAt(int b, int c) {
+        if (verses == null) { pendingBook = b; pendingChap = c; return; }
+        openChapter(b, c);
     }
 
-    private boolean isRead(int g) { return (readBits[g >> 3] & (1 << (g & 7))) != 0; }
-
-    private void markRead(int g) {
-        if (g < 1 || g > 1189 || isRead(g)) return;
-        readBits[g >> 3] |= (byte) (1 << (g & 7));
-        sp.edit().putString("bible_read", Base64.encodeToString(readBits, Base64.NO_WRAP)).apply();
-        recount();
-    }
-
-    private boolean complete() { return readCount >= 1189; }
+    private final BibleAudio.Listener audioListener = new BibleAudio.Listener() {
+        @Override public void onState() { post(() -> invalidate()); startTick(); }
+        @Override public void onChapter(int pb, int pc) {
+            post(() -> { if (screen == READER && selBook == pb && selChap == pc) openChapter(audio.book, audio.chap); });
+        }
+    };
 
     private int readInBook(int b) {
         Verses v = verses;
@@ -290,113 +285,35 @@ final class BiblePanel extends View {
 
     private float maxText() { return layout == null ? 0f : Math.max(0f, layout.getHeight() + 8 - (RT - TT)); }
 
-    // ---------- áudio ----------
+    // ---------- áudio (quem toca é o BibleAudio; o painel só mostra e comanda) ----------
     private void playChapter(int b, int c) {
-        stopAudio();
         openChapter(b, c);
-        Verses v = verses;
-        if (v == null) return;
-        int g = v.globalChapter(b, c);
-        Uri u = files.get(g);
-        if (u == null) {
-            status = "sem áudio do capítulo " + g;
-            invalidate();
-            return;
-        }
-        try {
-            MusicPlayer m = MusicPlayer.get(ctx);
-            if (m.playing()) m.toggle();           // a música do app espera a leitura
-        } catch (RuntimeException ignored) { /* sem música */ }
-        audioBook = b;
-        audioChap = c;
-        starting = true;
-        status = "carregando áudio…";
-        final android.media.MediaPlayer m = new android.media.MediaPlayer();
-        mp = m;
-        try {
-            m.setAudioAttributes(new android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_MEDIA)
-                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build());
-            m.setDataSource(ctx, u);
-            m.setOnPreparedListener(x -> {
-                if (mp != x) return;
-                prepared = true;
-                starting = false;
-                x.start();
-                playing = true;
-                status = "";
-                tick();
-            });
-            m.setOnCompletionListener(x -> {
-                if (mp != x) return;
-                markRead(g);
-                int nb = audioBook, nc = audioChap + 1;
-                if (nc >= v.chapterCount(nb)) { nb++; nc = 0; }
-                if (nb >= v.bookCount()) { stopAudio(); invalidate(); return; }
-                final int fb = nb, fc = nc;
-                handler.post(() -> playChapter(fb, fc));       // segue em ordem: Gn ... Ap
-            });
-            m.setOnErrorListener((x, what, extra) -> {
-                status = "não consegui tocar este áudio";
-                stopAudio();
-                invalidate();
-                return true;
-            });
-            m.prepareAsync();
-        } catch (java.io.IOException | RuntimeException e) {
-            status = "não consegui abrir o áudio";
-            stopAudio();
-        }
-        invalidate();
+        audio.listener = audioListener;
+        audio.play(b, c, true);
     }
 
-    private void stopAudio() {
-        handler.removeCallbacks(tickRun);
-        playing = false;
-        prepared = false;
-        starting = false;
-        android.media.MediaPlayer m = mp;
-        mp = null;
-        if (m != null) {
-            try { m.stop(); } catch (RuntimeException ignored) { /* ainda não estava pronto */ }
-            m.release();
-        }
-        hiVerse = -1;
-    }
-
-    private void togglePause() {
-        android.media.MediaPlayer m = mp;
-        if (m == null || !prepared) {
-            playChapter(selBook, selChap);
-            return;
-        }
-        if (m.isPlaying()) { m.pause(); playing = false; handler.removeCallbacks(tickRun); }
-        else { m.start(); playing = true; tick(); }
-        invalidate();
-    }
+    private void startTick() { handler.removeCallbacks(tickRun); handler.post(tickRun); }
 
     private final Runnable tickRun = this::tick;
 
     private void tick() {
         handler.removeCallbacks(tickRun);
-        android.media.MediaPlayer m = mp;
-        if (m == null || !prepared || !playing) return;
-        try {
-            int dur = Math.max(1, m.getDuration()), pos = m.getCurrentPosition();
-            if (audioBook == selBook && audioChap == selChap && layout != null && vStart.length > 0) {
-                long total = 0;
-                for (int i = 0; i < vStart.length; i++) total += vEnd[i] - vStart[i];
-                float target = pos / (float) dur * total;
-                long acc = 0;
-                int k = 0;
-                for (int i = 0; i < vStart.length; i++) { acc += vEnd[i] - vStart[i]; if (acc >= target) { k = i; break; } k = i; }
-                hiVerse = k;
-                if (follow && SystemClockNow() > followPausedUntil) {
-                    float want = layout.getLineTop(layout.getLineForOffset(vStart[k])) - 24f;
-                    want = Math.max(0f, Math.min(maxText(), want));
-                    textScroll += (want - textScroll) * 0.10f;
-                }
+        if (!showing || !audio.isPlaying()) return;
+        if (audio.book == selBook && audio.chap == selChap && layout != null && vStart.length > 0) {
+            float frac = audio.position() / (float) audio.duration();
+            long total = 0;
+            for (int i = 0; i < vStart.length; i++) total += vEnd[i] - vStart[i];
+            float target = frac * total;
+            long acc = 0;
+            int k = 0;
+            for (int i = 0; i < vStart.length; i++) { acc += vEnd[i] - vStart[i]; k = i; if (acc >= target) break; }
+            hiVerse = k;
+            if (follow && SystemClockNow() > followPausedUntil) {
+                float want = layout.getLineTop(layout.getLineForOffset(vStart[k])) - 24f;
+                want = Math.max(0f, Math.min(maxText(), want));
+                textScroll += (want - textScroll) * 0.10f;
             }
-        } catch (RuntimeException ignored) { /* player saiu */ }
+        }
         invalidate();
         handler.postDelayed(tickRun, 33);
     }
@@ -559,15 +476,15 @@ final class BiblePanel extends View {
         p.setColor(0xFFD9A441);
         c.drawLine(50, 190, 182, 190, p);
         text(c, "texto-base NTLH · nomes ajustados", PW / 2f, 204, 8.6f, 0xFFE6D3A8, Paint.Align.CENTER, false);
-        text(c, "Capítulos lidos/ouvidos: " + readCount + " / 1189", PW / 2f, 228, 10, 0xFFFFFFFF, Paint.Align.CENTER, true);
+        text(c, "Capítulos lidos/ouvidos: " + audio.readCount() + " / 1189", PW / 2f, 228, 10, 0xFFFFFFFF, Paint.Align.CENTER, true);
         p.setStyle(Paint.Style.FILL);
         p.setColor(0x55FFFFFF);
         r.set(30, 233, 202, 237);
         c.drawRoundRect(r, 2, 2, p);
         p.setColor(0xFF7CFF8A);
-        r.set(30, 233, 30 + 172 * readCount / 1189f, 237);
+        r.set(30, 233, 30 + 172 * audio.readCount() / 1189f, 237);
         c.drawRoundRect(r, 2, 2, p);
-        int n = files.size();
+        int n = audio.fileCount();
         text(c, n > 0 ? "Dublagem: " + n + " capítulos reconhecidos" : "Dublagem: nenhuma (importe em ▦ Opções)", PW / 2f, 254, 9.2f,
                 n > 0 ? 0xFF7CFF8A : 0xFFFFB066, Paint.Align.CENTER, true);
         button(c, 28, 268, 204, 304, "CONTINUAR  " + shortRef(v), 0xFFFFD27A, 12.5f);
@@ -633,7 +550,7 @@ final class BiblePanel extends View {
         c.clipRect(TL, TT, TR, RT);
         if (layout != null) {
             c.translate(TL + 7, TT + 4 - textScroll);
-            if (hiVerse >= 0 && hiVerse < vStart.length && audioBook == selBook && audioChap == selChap) {
+            if (hiVerse >= 0 && hiVerse < vStart.length && audio.book == selBook && audio.chap == selChap) {
                 int l0 = layout.getLineForOffset(vStart[hiVerse]), l1 = layout.getLineForOffset(Math.max(vStart[hiVerse], vEnd[hiVerse] - 1));
                 p.setStyle(Paint.Style.FILL);
                 p.setColor(0x44FFD27A);
@@ -644,17 +561,15 @@ final class BiblePanel extends View {
         }
         c.restore();
         // barra de tempo (toque pra pular) e estado do áudio
-        android.media.MediaPlayer m = mp;
+        boolean here = audio.book == selBook && audio.chap == selChap;
         float frac = 0f;
-        String info = status;
-        if (m != null && prepared) {
-            try {
-                int dur = Math.max(1, m.getDuration()), pos = m.getCurrentPosition();
-                frac = pos / (float) dur;
-                info = (playing ? "tocando " : "pausado ") + clock(pos) + " / " + clock(dur);
-            } catch (RuntimeException ignored) { /* player saiu */ }
+        String info = here ? audio.status : "";
+        if (audio.isPrepared()) {
+            int dur = audio.duration(), pos = audio.position();
+            frac = pos / (float) dur;
+            info = (audio.isPlaying() ? "tocando " : "pausado ") + (here ? "" : v.bookName(audio.book) + " " + (audio.chap + 1) + " · ") + clock(pos) + " / " + clock(dur);
         } else if (info.isEmpty()) {
-            info = files.get(v.globalChapter(selBook, selChap)) != null ? "toque ▶ para ouvir" : "sem áudio deste capítulo";
+            info = audio.hasAudio(v.globalChapter(selBook, selChap)) ? "toque ▶ para ouvir" : "sem áudio deste capítulo";
         }
         p.setStyle(Paint.Style.FILL);
         p.setColor(0x55FFFFFF);
@@ -665,7 +580,7 @@ final class BiblePanel extends View {
         c.drawRoundRect(r, 2, 2, p);
         text(c, info, PW / 2f, RT + 21, 9.5f, 0xFFEFE6CC, Paint.Align.CENTER, true);
         // botões: anterior, tocar/pausar, parar, próximo, letra menor, letra maior, seguir texto
-        String[] lab = {"\u25C0", playing ? "\u275A\u275A" : "\u25B6", "\u25A0", "\u25B6\u25B6", "A\u2212", "A+", follow ? "\u2316" : "\u2013"};
+        String[] lab = {"\u25C0", audio.isPlaying() ? "\u275A\u275A" : "\u25B6", "\u25A0", "\u25B6\u25B6", "A\u2212", "A+", follow ? "\u2316" : "\u2013"};
         int[] col = {0xFF9FE8FF, 0xFF7CFF8A, 0xFFFF8A8A, 0xFF9FE8FF, 0xFFFFD27A, 0xFFFFD27A, follow ? 0xFF7CFF8A : 0xFF888888};
         for (int i = 0; i < 7; i++) {
             float x = TL + i * 29.2f;
@@ -773,7 +688,7 @@ final class BiblePanel extends View {
         int b = selBook, c = selChap + dir;
         if (c < 0) { b--; if (b < 0) return; c = v.chapterCount(b) - 1; }
         else if (c >= v.chapterCount(b)) { b++; if (b >= v.bookCount()) return; c = 0; }
-        if (playing || starting) playChapter(b, c); else { stopAudio(); openChapter(b, c); }
+        if (audio.isActive()) playChapter(b, c); else openChapter(b, c);
     }
 
     private void act(int a, float x) {
@@ -794,16 +709,14 @@ final class BiblePanel extends View {
             case A_BOOKS: screen = BOOKS; listScroll = 0; invalidate(); break;
             case A_PREV: step(-1); break;
             case A_NEXT: step(1); break;
-            case A_PLAY: togglePause(); break;
-            case A_STOP: stopAudio(); status = ""; invalidate(); break;
+            case A_PLAY: if (!audio.togglePause()) playChapter(selBook, selChap); startTick(); invalidate(); break;
+            case A_STOP: audio.stop(); audio.status = ""; invalidate(); break;
             case A_FDN: sp.edit().putInt("bible_font", Math.max(8, sp.getInt("bible_font", 13) - 1)).apply(); buildText(); invalidate(); break;
             case A_FUP: sp.edit().putInt("bible_font", Math.min(30, sp.getInt("bible_font", 13) + 1)).apply(); buildText(); invalidate(); break;
             case A_FOLLOW: follow = !follow; invalidate(); break;
             case A_SEEK:
-                if (mp != null && prepared) {
-                    try { mp.seekTo((int) (mp.getDuration() * Math.max(0f, Math.min(1f, (x - TL) / (TR - TL))))); } catch (RuntimeException ignored) { /* sem player */ }
-                    invalidate();
-                }
+                audio.seekFraction((x - TL) / (TR - TL));
+                invalidate();
                 break;
             default: break;
         }
@@ -839,7 +752,7 @@ final class BiblePanel extends View {
                     if (screen == READER) {
                         textScroll = Math.max(0f, Math.min(maxText(), startScroll - (y - downY)));
                         followPausedUntil = SystemClockNow() + 3500;      // mexeu no texto: o "seguir" espera um pouco
-                        if (!playing) invalidate();
+                        if (!audio.isPlaying()) invalidate();
                     } else {
                         listScroll = Math.max(0f, Math.min(maxList(), startScroll - (y - downY)));
                     }
@@ -855,7 +768,7 @@ final class BiblePanel extends View {
                 }
                 if (screen == READER && textScroll >= maxText() - 2 && layout != null && !closing) {
                     Verses v = verses;
-                    if (v != null && maxText() > 0) { markRead(v.globalChapter(selBook, selChap)); invalidate(); }
+                    if (v != null && maxText() > 0) { audio.markRead(v.globalChapter(selBook, selChap)); invalidate(); }
                 }
                 mode = 0;
                 return true;

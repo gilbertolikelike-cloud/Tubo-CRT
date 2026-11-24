@@ -570,7 +570,8 @@ final class Familiar {
             String[] verse;
             int idx = -1;
             if (v != null) {
-                idx = rnd.nextInt(v.size());
+                idx = Math.max(0, sp.getInt("verse_seq", 0)) % v.size();   // em ordem, do Gênesis ao Apocalipse: sem sorteio
+                sp.edit().putInt("verse_seq", (idx + 1) % v.size()).apply();
                 verse = v.get(idx);
             } else {
                 verse = new String[]{"O SENHOR é o meu pastor; nada me faltará.", "Salmos 23:1"};

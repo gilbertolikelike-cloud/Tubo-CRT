@@ -457,6 +457,9 @@ public class MainActivity extends Activity {
             else MusicPlayer.get(this).refreshVisualizer();
         }));
         box.addView(switchRow("Sons do painel (TV de tubo)", sp.getBoolean("ui_sounds", true), (b, on) -> sp.edit().putBoolean("ui_sounds", on).apply()));
+        box.addView(switchRow("Capítulo da Bíblia com dublagem, em ordem (Gn a Ap)", sp.getBoolean("bible_auto", true), (b, on) -> sp.edit().putBoolean("bible_auto", on).apply()));
+        box.addView(slider("De quanto em quanto tempo (minutos)", "bible_every", 5, 180, 30, " min"));
+        box.addView(switchRow("Painel fecha sozinho depois de 10 s (desligado = fica aberto)", sp.getBoolean("panel_autoclose", false), (b, on) -> sp.edit().putBoolean("panel_autoclose", on).apply()));
         box.addView(switchRow("Espada solta depois de 2 min parado", sp.getBoolean("familiar_on", true), (b, on) -> sp.edit().putBoolean("familiar_on", on).apply()));
         box.addView(switchRow("Brilho nunca automático", sp.getBoolean("no_auto_bright", true), (b, on) -> {
             sp.edit().putBoolean("no_auto_bright", on).apply();

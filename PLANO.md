@@ -153,3 +153,8 @@ Tudo que ele mandou está em `referencias/` (gifs, folhas de sprites, os 2 model
 - VerseStyler: só pinta quando o sujeito é o 1º nome antes do travessão (Yahusha, Elohim, Yahuah, profetas no AT, discípulos no NT). Pilatos/"ele"/vários travessões = sem cor. Cores configuráveis em ▦ "Cores das falas".
 - Animação dos painéis 2 e 3 agora pela GPU (translation/alpha), sem updateViewLayout por quadro.
 - PENDENTE: módulos do theWord (.ont/.ot/.nt: precisa de um módulo de exemplo para calibrar a versificação), capas de músicas/PDF, painel 4, opções por categorias com ⚠️, log de versões, FPS, voz para PDF (RVC), duelo (coroa/roleta/fúria), GIF Studio, lupa.
+
+## Atualização 12 (versionCode 17)
+- Painel principal NÃO fecha mais sozinho (era 10 s). Opção ▦ "Painel fecha sozinho..." (padrão desligado).
+- Dublagem agora vive em BibleAudio (fora do painel): fechar o painel não para o áudio; wake lock; ■ para; no modo manual segue em ordem Gn..Ap.
+- Sem versículo aleatório: balão da espada mostra versículos em ordem (verse_seq). A cada 30 min (opção ▦, 5-180 min) abre o painel + Bíblia no próximo capítulo da fila (bible_seq = último ouvido + 1) e toca a dublagem (só 1 capítulo por vez).

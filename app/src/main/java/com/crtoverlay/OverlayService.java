@@ -276,8 +276,27 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
         if (!familiar.isActive() && SystemClock.uptimeMillis() - lastActivity >= IDLE_MS) familiar.start();
     }
 
+    // ---------- um capítulo da Bíblia com dublagem, em ordem, a cada X minutos (padrão 30) ----------
+    private long bibleDue;
+    private final Runnable bibleTick = new Runnable() {
+        @Override public void run() {
+            long now = SystemClock.uptimeMillis();
+            if (sp.getBoolean("bible_auto", true) && panel != null && !screenOff && now >= bibleDue) {
+                int[] loc = BibleAudio.get(OverlayService.this).playNextScheduled();
+                if (loc != null) {
+                    panel.revealBible(loc[0], loc[1]);
+                    bibleDue = now + Math.max(5, sp.getInt("bible_every", 30)) * 60_000L;
+                }
+            }
+            idleHandler.postDelayed(this, 15_000);
+        }
+    };
+
     private void startPanel() {
         if (panel != null || !sp.getBoolean("panel_on", true)) return;
+        bibleDue = SystemClock.uptimeMillis() + Math.max(5, sp.getInt("bible_every", 30)) * 60_000L;
+        idleHandler.removeCallbacks(bibleTick);
+        idleHandler.postDelayed(bibleTick, 15_000);
         panel = new BobPanel(this, wm, viaAccessibility, sp);
         panel.show();
         panel.setActivityListener(this::onUserActivity);
@@ -291,6 +310,7 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
     private void stopPanel() {
         if (panel != null) {
             idleHandler.removeCallbacks(idleCheck);
+            idleHandler.removeCallbacks(bibleTick);
             if (familiar != null) familiar.stop();
             panel.hide();
             panel = null;
