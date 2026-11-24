@@ -55,7 +55,7 @@ import java.util.TreeMap;
  * No pilar da esquerda ficam dois botões: ▦ abre as opções de ligar/desligar e + escolhe os seus jogos.
  */
 public class MainActivity extends Activity {
-    private static final int REQ_MUSIC_FOLDER = 7, REQ_AUDIO = 8, REQ_TV_FOLDER = 9;
+    private static final int REQ_VOICE_ZIP = 7711, REQ_VOICE_TREE = 7712, REQ_MUSIC_FOLDER = 7, REQ_AUDIO = 8, REQ_TV_FOLDER = 9;
     private static final int INK = 0xFF1E1208; // texto escuro em cima da madeira clara
 
     // prateleiras amarelas (fração da altura do cenário) medidas nos gifs: {topo, base}
@@ -446,6 +446,8 @@ public class MainActivity extends Activity {
             ed.apply();
         }));
         box.addView(dialogButton("Biblioteca de livros (PDF)", v -> startActivity(new Intent(this, BookActivity.class))));
+        box.addView(dialogButton("Dublagem da Bíblia (importar ZIP ou pasta)", v -> showVoiceDialog()));
+        box.addView(dialogButton("Cores das falas dos versículos", v -> showSpeechColors()));
         box.addView(dialogButton("Botões da gaveta (você escolhe)", v -> showDrawerDialog()));
         box.addView(dialogButton("TV de vídeo (playlists por pasta)", v -> showTvDialog()));
         box.addView(switchRow("Analisador de espectro (pede permissão de áudio)", sp.getBoolean("spectrum_on", true), (b, on) -> {
@@ -625,8 +627,84 @@ public class MainActivity extends Activity {
         startActivityForResult(i, REQ_MUSIC_FOLDER);
     }
 
+
+    // ---------- dublagem da Bíblia: o app só reconhece os arquivos numerados, nunca mexe neles ----------
+    private void showVoiceDialog() {
+        final int n = VoiceLibrary.index(this, sp).size();
+        new AlertDialog.Builder(this)
+                .setTitle("Dublagem da Bíblia")
+                .setMessage("Capítulos reconhecidos agora: " + n + " de 1189.\n\n"
+                        + "O app reconhece pelo NÚMERO na frente do nome (0001_..., 0461_..., 1189_...). "
+                        + "Os arquivos não são renomeados nem alterados.\n\n"
+                        + "• Importar ZIP: copia os MP3 de dentro do ZIP para o app (pode escolher vários ZIPs, ocupa espaço).\n"
+                        + "• Escolher pasta: usa a pasta onde os MP3 já estão, sem copiar nada.")
+                .setPositiveButton("Importar ZIP", (dlg, w) -> {
+                    Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                    i.addCategory(Intent.CATEGORY_OPENABLE);
+                    i.setType("*/*");
+                    i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                    startActivityForResult(i, REQ_VOICE_ZIP);
+                })
+                .setNeutralButton("Escolher pasta", (dlg, w) -> startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE), REQ_VOICE_TREE))
+                .setNegativeButton("Apagar importados", (dlg, w) -> {
+                    VoiceLibrary.clearImported(this);
+                    sp.edit().remove("voice_tree").apply();
+                    Toast.makeText(this, "Dublagem importada apagada (seus ZIPs e pastas originais não foram tocados).", Toast.LENGTH_LONG).show();
+                }).show();
+    }
+
+    private void importVoiceZips(List<Uri> zips) {
+        Toast.makeText(this, "Importando " + zips.size() + " ZIP(s)… pode demorar, deixe o app aberto.", Toast.LENGTH_LONG).show();
+        new Thread(() -> {
+            int total = 0;
+            for (Uri z : zips) {
+                int k = VoiceLibrary.importZip(this, z);
+                if (k > 0) total += k;
+            }
+            final int done = total;
+            runOnUiThread(() -> Toast.makeText(this, done > 0 ? "Pronto: " + done + " capítulos importados."
+                    : "Não achei MP3 numerados dentro desse ZIP.", Toast.LENGTH_LONG).show());
+        }).start();
+    }
+
+    private static final String[] SPEAKERS = {"Jesus (Yahusha)", "Deus (Elohim, Yahuah)", "Profetas", "Discípulos"};
+    private static final String[] SPEAKER_KEYS = {"col_jesus", "col_god", "col_prophet", "col_disciple"};
+    private static final int[] SPEAKER_DEF = {0xFFC00018, 0xFF0A3CA8, 0xFF9A6A00, 0xFF0B5D1E};
+    private static final String[] COLOR_NAMES = {"Vermelho", "Azul", "Dourado", "Verde escuro", "Roxo", "Laranja", "Preto", "Marrom"};
+    private static final int[] COLOR_VALUES = {0xFFC00018, 0xFF0A3CA8, 0xFF9A6A00, 0xFF0B5D1E, 0xFF6A1B9A, 0xFFD35400, 0xFF111111, 0xFF6D4C41};
+
+    private void showSpeechColors() {
+        String[] items = new String[SPEAKERS.length + 1];
+        for (int i = 0; i < SPEAKERS.length; i++) items[i] = SPEAKERS[i];
+        items[SPEAKERS.length] = "Restaurar cores padrão";
+        new AlertDialog.Builder(this).setTitle("Cor de quem fala").setItems(items, (dlg, which) -> {
+            if (which == SPEAKERS.length) {
+                SharedPreferences.Editor e = sp.edit();
+                for (String k : SPEAKER_KEYS) e.remove(k);
+                e.apply();
+                return;
+            }
+            new AlertDialog.Builder(this).setTitle(SPEAKERS[which]).setItems(COLOR_NAMES, (d2, c) ->
+                    sp.edit().putInt(SPEAKER_KEYS[which], COLOR_VALUES[c]).apply()).show();
+        }).show();
+    }
+
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
+        if (request == REQ_VOICE_ZIP && result == RESULT_OK && data != null) {
+            List<Uri> zips = new ArrayList<>();
+            if (data.getClipData() != null) for (int i = 0; i < data.getClipData().getItemCount(); i++) zips.add(data.getClipData().getItemAt(i).getUri());
+            else if (data.getData() != null) zips.add(data.getData());
+            if (!zips.isEmpty()) importVoiceZips(zips);
+            return;
+        }
+        if (request == REQ_VOICE_TREE && result == RESULT_OK && data != null && data.getData() != null) {
+            Uri tree = data.getData();
+            try { getContentResolver().takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION); } catch (RuntimeException ignored) { /* vale até fechar o app */ }
+            sp.edit().putString("voice_tree", tree.toString()).apply();
+            Toast.makeText(this, "Pasta da dublagem guardada. Abra a Bíblia para ver quantos capítulos foram reconhecidos.", Toast.LENGTH_LONG).show();
+            return;
+        }
         if (request == REQ_TV_FOLDER && result == RESULT_OK && data != null && data.getData() != null) {
             Uri folder = data.getData();
             try {

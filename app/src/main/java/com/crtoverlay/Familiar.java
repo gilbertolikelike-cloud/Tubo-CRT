@@ -149,7 +149,6 @@ final class Familiar {
         // versículo: o 1º sai logo; depois espera 5, 7 e 10 min (e de 10 em 10). Tocar na tela recomeça tudo.
         private int verseCount;
         private final Context appCtx;
-        private volatile Medals medals;
         private int level = 1;
         private float levelUpUntil;
         private float nextVerseAt;
@@ -204,7 +203,7 @@ final class Familiar {
                 SpriteSheet duck = SpriteSheet.load(app, "duck_target", 1);
                 SpriteSheet alucard = null; // não carrega: ele só vai aparecer como boss
                 SpriteSheet night = SpriteSheet.load(app, "sword", 1);
-                Verses v = Verses.load(app);
+                Verses v = Verses.shared(app);
                 if (released) {
                     for (SpriteSheet s : new SpriteSheet[]{sword, trailS, duck, alucard, night}) if (s != null) s.recycle();
                     return;
@@ -214,7 +213,6 @@ final class Familiar {
                 alucardSheet = alucard;
                 nightSheet = night;
                 verses = v;
-                medals = v != null ? new Medals(sp, v.size()) : null;
                 swordSheet = sword;
             }).start();
         }
@@ -569,13 +567,10 @@ final class Familiar {
 
         private void chooseVerse() {
             Verses v = verses;
-            Medals md = medals;
-            boolean fresh = false;
             String[] verse;
-            if (v != null) { // sorteia entre os versículos que ainda não deram medalha
-                int idx = md != null ? md.randomLocked(rnd) : -1;
-                if (idx < 0) idx = rnd.nextInt(v.size());
-                else if (md.unlock(idx)) fresh = true;
+            int idx = -1;
+            if (v != null) {
+                idx = rnd.nextInt(v.size());
                 verse = v.get(idx);
             } else {
                 verse = new String[]{"O SENHOR é o meu pastor; nada me faltará.", "Salmos 23:1"};
@@ -588,15 +583,17 @@ final class Familiar {
             refHalo.setTextSize(size * 0.88f);
             refHalo.setStrokeWidth(Math.max(2f, size * 0.2f));
             int width = (int) Math.min(w * 0.76f, 300 * d);
-            String text = verse[0], ref = verse[1].isEmpty() ? "" : "\u2014 " + verse[1] + (fresh ? "  (nova medalha!)" : "");
+            String text = verse[0], ref = verse[1].isEmpty() ? "" : "\u2014 " + verse[1] + "";
             String book = verse[1].isEmpty() ? "" : verse[1].substring(0, Math.max(0, verse[1].lastIndexOf(' ')));
+            boolean nt = v != null && idx >= 0 && v.isNewTestament(v.bookOf(idx));
             android.text.SpannableString styled = new android.text.SpannableString(text); // fala de Jesus, de Deus, dos profetas e dos discípulos em cores
-            for (int[] sp2 : VerseStyler.spans(text, book)) {
+            for (int[] sp2 : (v != null && idx >= 0 ? VerseStyler.spans(v, idx, sp.getInt("col_god", 0xFF0A3CA8), sp.getInt("col_jesus", 0xFFC00018),
+                    sp.getInt("col_prophet", 0xFF9A6A00), sp.getInt("col_disciple", 0xFF0B5D1E)) : new java.util.ArrayList<int[]>())) {
                 styled.setSpan(new android.text.style.ForegroundColorSpan(sp2[2]), sp2[0], sp2[1], android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             }
             verseLayout = layout(styled, verseText, width);
             haloLayout = layout(text, verseHalo, width); // o contorno branco usa o texto puro (mesma forma)
-            String label = book.isEmpty() ? "" : (VerseStyler.isNewTestament(book) ? "NOVO TESTAMENTO" : "VELHO TESTAMENTO");
+            String label = book.isEmpty() ? "" : (nt ? "NOVO TESTAMENTO" : "VELHO TESTAMENTO");
             labelText.setTextSize(size * 0.74f);
             labelHalo.setTextSize(size * 0.74f);
             labelHalo.setStrokeWidth(Math.max(2f, size * 0.16f));

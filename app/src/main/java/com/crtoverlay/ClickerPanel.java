@@ -96,7 +96,8 @@ final class ClickerPanel extends View {
         wm.getDefaultDisplay().getMetrics(dm);
         lp.x = Math.max(0, Math.min(dm.widthPixels - w, Math.round(panelX + (panelW - w) / 2f))); // centralizado no principal
         finalY = Math.max(0f, panelY + 6 * d - h);
-        lp.y = Math.round(finalY + (h - 28 * d));
+        lp.y = Math.round(finalY);
+        setTranslationY(h - 28 * d);
         setAlpha(0f);
         try {
             wm.addView(this, lp);
@@ -116,6 +117,7 @@ final class ClickerPanel extends View {
 
     void closeNow() {
         handler.removeCallbacksAndMessages(null);
+        animate().cancel();
         if (!showing) return;
         showing = false;
         closing = false;
@@ -124,25 +126,19 @@ final class ClickerPanel extends View {
 
     private void slide(boolean in) {
         animIn = in;
-        animStart = SystemClock.uptimeMillis();
-        handler.removeCallbacksAndMessages(null);
-        handler.post(new Runnable() {
-            @Override public void run() {
-                float k = Math.min(1f, (SystemClock.uptimeMillis() - animStart) / 280f);
-                float e = k * k * (3f - 2f * k);
-                float pos = animIn ? e : 1f - e;
-                lp.y = Math.round(finalY + (1f - pos) * (h - 28 * d));
-                setAlpha(pos);
-                try { wm.updateViewLayout(ClickerPanel.this, lp); } catch (RuntimeException ignored) { /* janela já saiu */ }
-                if (k < 1f) {
-                    handler.postDelayed(this, 16);
-                } else if (!animIn) {
-                    showing = false;
-                    closing = false;
-                    try { wm.removeView(ClickerPanel.this); } catch (RuntimeException ignored) { /* já saiu */ }
-                }
-            }
-        });
+        animate().cancel();
+        setLayerType(LAYER_TYPE_HARDWARE, null);   // pela GPU: sem engasgar
+        android.view.ViewPropertyAnimator a = animate().setDuration(in ? 300 : 240)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator(2f));
+        if (in) {
+            a.translationY(0f).alpha(1f).withEndAction(() -> setLayerType(LAYER_TYPE_NONE, null)).start();
+        } else {
+            a.translationY(h - 28 * d).alpha(0f).withEndAction(() -> {
+                showing = false;
+                closing = false;
+                try { wm.removeView(ClickerPanel.this); } catch (RuntimeException ignored) { /* já saiu */ }
+            }).start();
+        }
     }
 
     private Bitmap makeWood() {

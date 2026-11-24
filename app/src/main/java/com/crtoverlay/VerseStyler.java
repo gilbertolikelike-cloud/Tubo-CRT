@@ -1,102 +1,71 @@
 package com.crtoverlay;
 
-import java.text.Normalizer;
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Cores das falas dos versículos: Jesus (vermelho), Deus (azul), grandes profetas (dourado)
- * e discípulos (verde escuro). A fala começa no travessão (—); quem fala vem do trecho antes dele.
+ * Cores das falas. Regra de segurança: só pinta quando tem certeza de quem fala. Quem fala é o 1º nome do trecho
+ * que vem antes do travessão (ex.: "Então Yahusha disse: —"); se o sujeito for outra pessoa (Pilatos), um "ele"
+ * ou um trecho com mais de um travessão, NÃO pinta. É melhor um versículo sem cor do que com a cor errada.
  */
 final class VerseStyler {
-    static final int RED = 0xFFC00018, BLUE = 0xFF0A3CA8, GOLD = 0xFF9A6A00, GREEN = 0xFF0B5D1E;
-    private static final int NONE = 0, GOD = 1, JESUS = 2, PROPHET = 3, DISCIPLE = 4;
+    static final int NONE = 0, GOD = 1, JESUS = 2, PROPHET = 3, DISCIPLE = 4;
+    private static final char DASH = '\u2014';
 
-    private static final Set<String> NEW_TESTAMENT = set("mateus", "marcos", "lucas", "joao", "atos", "romanos", "1 corintios",
-            "2 corintios", "galatas", "efesios", "filipenses", "colossenses", "1 tessalonicenses", "2 tessalonicenses",
-            "1 timoteo", "2 timoteo", "tito", "filemom", "hebreus", "tiago", "1 pedro", "2 pedro", "1 joao", "2 joao", "3 joao",
-            "judas", "apocalipse");
-    private static final Set<String> GOSPELS = set("mateus", "marcos", "lucas", "joao");
-    private static final Set<String> LETTERS = set("romanos", "1 corintios", "2 corintios", "galatas", "efesios", "filipenses",
-            "colossenses", "1 tessalonicenses", "2 tessalonicenses", "1 timoteo", "2 timoteo", "tito", "filemom", "hebreus",
-            "tiago", "1 pedro", "2 pedro", "1 joao", "2 joao", "3 joao", "judas", "apocalipse");
-    private static final Set<String> PROPHET_BOOKS = set("isaias", "jeremias", "lamentacoes", "ezequiel", "daniel", "oseias",
-            "joel", "amos", "obadias", "jonas", "miqueias", "naum", "habacuque", "sofonias", "ageu", "zacarias", "malaquias");
+    private static final Pattern LEAD = Pattern.compile("^\\s*(?:(?:Então|Aí|Mas|Porém|Depois|Nisso|Logo|Também|Ainda|Assim|E|Em seguida)[,]?\\s+)+", Pattern.CASE_INSENSITIVE);
+    private static final Pattern ART = Pattern.compile("^(?:o|a)\\s+", Pattern.CASE_INSENSITIVE);
+    private static final Pattern GOD_P = Pattern.compile("^(Elohim|Yahuah|Yah|Deus|Todo-Poderoso)(?![\\p{L}-])");
+    private static final Pattern JESUS_P = Pattern.compile("^(Yahusha|Messias|Cristo)(?![\\p{L}])");
+    private static final Pattern PROPHET_P = Pattern.compile("^(Moisés|Elias|Eliseu|Isaías|Jeremias|Ezequiel|Daniel|Samuel|Natã|Amós|Oseias|Joel|Jonas|Miqueias|Naum|Habacuque|Sofonias|Ageu|Zacarias|Malaquias|Obadias)(?![\\p{L}])");
+    private static final Pattern DISCIPLE_P = Pattern.compile("^(Pedro|André|Filipe|Tomé|Natanael|Paulo|Estêvão|Barnabé)(?![\\p{L}])");
 
-    private static final Pattern GOD_P = names("Deus", "SENHOR");
-    private static final Pattern JESUS_P = names("Jesus", "Cristo", "Messias");
-    private static final Pattern PROPHET_P = names("Moisés", "Elias", "Eliseu", "Isaías", "Jeremias", "Ezequiel", "Daniel", "Samuel",
-            "Natã", "Amós", "Oseias", "Joel", "Jonas", "Miqueias", "Naum", "Habacuque", "Sofonias", "Ageu", "Zacarias", "Malaquias", "Obadias");
-    private static final Pattern DISCIPLE_P = names("Pedro", "João", "Tiago", "André", "Filipe", "Bartolomeu", "Tomé", "Mateus",
-            "Tadeu", "Simão", "Paulo", "Barnabé", "discípulos", "apóstolos");
+    private VerseStyler() { }
 
-    private VerseStyler() {}
-
-    private static Set<String> set(String... v) { return new HashSet<>(Arrays.asList(v)); }
-
-    private static Pattern names(String... v) {
-        return Pattern.compile("(?<!\\p{L})(" + String.join("|", v) + ")(?!\\p{L})");
-    }
-
-    /** Tira acento e põe tudo em minúscula: "1 Coríntios" vira "1 corintios". */
-    private static String norm(String s) {
-        return Normalizer.normalize(s, Normalizer.Form.NFD).replaceAll("\\p{M}", "").toLowerCase(Locale.ROOT).trim();
-    }
-
-    private static boolean has(Set<String> books, String b) {
-        for (String x : books) if (b.equals(x) || b.startsWith(x + " ")) return true;
-        return false;
-    }
-
-    static boolean isNewTestament(String book) { return has(NEW_TESTAMENT, norm(book)); }
-
-    /** Trechos coloridos do versículo: {início, fim, cor}. */
-    static List<int[]> spans(String text, String book) {
+    static List<int[]> spans(Verses v, int idx, int god, int jesus, int prophet, int disciple) {
         List<int[]> out = new ArrayList<>();
-        String b = norm(book);
-        int bookColor = has(PROPHET_BOOKS, b) ? GOLD : has(LETTERS, b) ? GREEN : 0; // livros dos profetas e cartas dos discípulos
-        int dash = text.indexOf('\u2014');
-        int narrationEnd = dash >= 0 ? dash : text.length();
-        if (dash >= 0 && dash < text.length() - 1) {
-            int speaker = dash == 0 ? NONE : detectSpeaker(text.substring(0, dash));
-            int color = colorOf(speaker, b);
-            if (color != 0) out.add(new int[]{dash, text.length(), color});
-        }
-        if (bookColor != 0 && narrationEnd > 0) out.add(new int[]{0, narrationEnd, bookColor});
+        String t = v.text(idx);
+        int d = t.indexOf(DASH);
+        if (d < 0 || t.indexOf(DASH, d + 1) >= 0) return out;
+        int who = d == 0 ? lookBack(v, idx) : (t.substring(0, d).trim().endsWith(":") ? subject(t.substring(0, d), v.isNewTestament(v.bookOf(idx))) : NONE);
+        // quando o dono do trecho é o versículo anterior, a regra de testamento usa o livro atual
+        int color = who == GOD ? god : who == JESUS ? jesus : who == PROPHET ? prophet : who == DISCIPLE ? disciple : 0;
+        if (d == 0 && who != NONE) who = fix(who, v, idx);
+        if (color != 0) out.add(new int[]{d, t.length(), color});
         return out;
     }
 
-    /** Quem fala: o primeiro nome conhecido no trecho que antecede o travessão. */
-    private static int detectSpeaker(String intro) {
-        int best = NONE, bestPos = Integer.MAX_VALUE;
-        Object[][] sets = {{GOD_P, GOD}, {JESUS_P, JESUS}, {PROPHET_P, PROPHET}, {DISCIPLE_P, DISCIPLE}};
-        for (Object[] s : sets) {
-            Matcher m = ((Pattern) s[0]).matcher(intro);
-            if (m.find() && m.start() < bestPos) {
-                bestPos = m.start();
-                best = (Integer) s[1];
-            }
+    private static int fix(int who, Verses v, int idx) { return who; }
+
+    private static int lookBack(Verses v, int idx) {
+        int b = v.bookOf(idx), c = v.chapOf(idx);
+        boolean nt = v.isNewTestament(b);
+        for (int j = idx - 1; j >= Math.max(0, idx - 8); j--) {
+            if (v.bookOf(j) != b || v.chapOf(j) != c) return NONE;
+            String t = v.text(j);
+            int d = t.indexOf(DASH);
+            if (d < 0) return t.trim().endsWith(":") ? subject(t, nt) : NONE;
+            if (t.indexOf(DASH, d + 1) >= 0) return NONE;
+            if (d == 0) continue;
+            return t.substring(0, d).trim().endsWith(":") ? subject(t.substring(0, d), nt) : NONE;
         }
-        return best;
+        return NONE;
     }
 
-    private static int colorOf(int speaker, String book) {
-        switch (speaker) {
-            case GOD: return BLUE;
-            case JESUS: return RED;
-            case PROPHET: return GOLD;
-            case DISCIPLE: return GREEN;
-            default:
-                if (has(GOSPELS, book)) return RED;          // nos evangelhos, fala sem dono costuma ser de Jesus
-                if (has(PROPHET_BOOKS, book)) return BLUE;   // nos profetas, é o recado de Deus
-                if (has(LETTERS, book)) return GREEN;
-                return 0;
-        }
+    /** Sujeito da última frase do trecho. Só aceita se o nome for a primeira palavra (depois de "Então", "E", "o"...). */
+    private static int subject(String intro, boolean nt) {
+        String s = intro.trim();
+        int cut = Math.max(Math.max(s.lastIndexOf(". "), s.lastIndexOf("! ")), s.lastIndexOf("? "));
+        if (cut >= 0) s = s.substring(cut + 2);
+        Matcher m = LEAD.matcher(s);
+        if (m.find()) s = s.substring(m.end());
+        m = ART.matcher(s);
+        if (m.find()) s = s.substring(m.end());
+        if (GOD_P.matcher(s).find()) return GOD;
+        if (JESUS_P.matcher(s).find()) return JESUS;
+        if (!nt && PROPHET_P.matcher(s).find()) return PROPHET;
+        if (nt && DISCIPLE_P.matcher(s).find()) return DISCIPLE;
+        return NONE;
     }
 }

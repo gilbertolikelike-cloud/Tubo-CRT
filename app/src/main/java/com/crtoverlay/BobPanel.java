@@ -1410,11 +1410,18 @@ public class BobPanel extends View implements Familiar.Host {
         p.setFakeBoldText(false);
     }
 
-    private MedalPanel medalPanel;
+    private BiblePanel medalPanel;
 
     /** MEDALHAS (dentro da gaveta): abre ou fecha o 2º painel. */
     private void openMedals() {
-        if (medalPanel == null) medalPanel = new MedalPanel(ctx, wm, viaAccessibility, sp);
+        if (medalPanel == null) {
+            medalPanel = new BiblePanel(ctx, wm, viaAccessibility, sp);
+            medalPanel.onResize = () -> { // tamanho normal <-> grande: refaz a janela e abre de novo
+                if (medalPanel != null) medalPanel.closeNow();
+                medalPanel = null;
+                openMedals();
+            };
+        }
         medalPanel.toggle(panX, panY, panW, panH);
     }
 
@@ -1456,7 +1463,7 @@ public class BobPanel extends View implements Familiar.Host {
         p.setColor(0xFFE8A33D);
         r.set(139 * d, 50 * d, 226 * d, 226 * d);
         c.drawRoundRect(r, 9 * d, 9 * d, p);
-        drawBigButton(c, drawerX(0), drawerY(0), 0xFFFFD27A, "MEDALHAS", 2); // abre o 2º painel
+        drawBigButton(c, drawerX(0), drawerY(0), 0xFFFFD27A, "BÍBLIA", 2); // abre o 2º painel
         drawBigButton(c, drawerX(1), drawerY(1), 0xFF7CFF8A, "CLICKER", 3);  // abre o 3º painel
         for (int i = 0; i < BUTTONS; i++) {
             if (!inDrawer(i)) continue;
