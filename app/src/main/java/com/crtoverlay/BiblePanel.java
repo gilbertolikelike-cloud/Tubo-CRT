@@ -384,6 +384,8 @@ final class BiblePanel extends View {
     @Override protected void onDraw(Canvas c) {
         c.save();
         c.scale(d, d);
+        final boolean fullCover = screen == COVER && coverBmp != null && verses != null;
+        if (!fullCover) {
         // moldura de madeira, linha escura por fora, miolo barroco e fio dourado
         p.setStyle(Paint.Style.FILL);
         p.setColor(0xFF8B4A1E);
@@ -423,20 +425,24 @@ final class BiblePanel extends View {
         c.drawRoundRect(r, 10.7f, 10.7f, p);
 
 
+        }
         // topo: título, voltar, tamanho grande, fechar
         Verses v = verses;
-        String title = screen == COVER ? "BÍBLIA" : screen == BOOKS ? "LIVROS" : (v != null ? v.bookName(selBook) : "");
-        if (screen == READER && v != null) title += " " + (selChap + 1);
-        float tx = screen == COVER ? PW / 2f : 118f;
-        fitText(c, title, tx, 31, 17, screen == COVER ? 150f : 110f, 0xFFFFD27A, Paint.Align.CENTER);
-        if (screen != COVER) roundBtn(c, 24, 24, "\u2190");
-        roundBtn(c, 176, 24, sp.getBoolean("bible_big", false) ? "\u2198" : "\u2922");
-        roundBtn(c, 208, 24, "\u2715");
+        if (fullCover) drawCover(c, verses);                  // a capa vai por baixo dos botões
+        float by = fullCover ? 13 : 24;                       // na capa os botões sobem para não cobrir a espada
+        if (screen != COVER) {
+            String title = screen == BOOKS ? "LIVROS" : (v != null ? v.bookName(selBook) : "");
+            if (screen == READER && v != null) title += " " + (selChap + 1);
+            fitText(c, title, 118f, 31, 17, 110f, 0xFFFFD27A, Paint.Align.CENTER);
+            roundBtn(c, 24, 24, "\u2190");
+        }
+        roundBtn(c, 176, by, sp.getBoolean("bible_big", false) ? "\u2198" : "\u2922");
+        roundBtn(c, 208, by, "\u2715");
 
         if (v == null) {
             text(c, "carregando…", PW / 2f, 160, 12, 0xFFB0B0B0, Paint.Align.CENTER, false);
         } else if (screen == COVER) {
-            drawCover(c, v);
+            // capa já desenhada acima
         } else if (screen == BOOKS) {
             drawBooks(c, v);
         } else if (screen == CHAPS) {
@@ -482,51 +488,36 @@ final class BiblePanel extends View {
     }
 
     private void drawCover(Canvas c, Verses v) {
-        // arte da capa (couro, portão e as duas espadas), esticada fina e alongada
-        r.set(TL, TT - 2, TR, TB);
-        if (coverBmp != null) {
-            p.setStyle(Paint.Style.FILL);
-            p.setFilterBitmap(true);
-            c.drawBitmap(coverBmp, null, r, p);
-        } else {
-            p.setStyle(Paint.Style.FILL);
-            p.setColor(0xFF3A130B);
-            c.drawRoundRect(r, 10, 10, p);
-        }
-        // as duas conquistas ficam nos botões redondos (pomos) das espadas
-        float cw = TR - TL, ch = TB - (TT - 2);
-        drawSmallMedal(c, TL + 0.150f * cw, TT - 2 + 0.117f * ch, sp.getBoolean("medal_gold", false), false);
-        drawSmallMedal(c, TL + 0.857f * cw, TT - 2 + 0.117f * ch, sp.getBoolean("medal_rgb", false), true);
-        if (complete()) {                                     // medalha da Bíblia completa: só aqui na capa
-            p.setStyle(Paint.Style.FILL);
-            p.setShader(new RadialGradient(PW / 2f - 4, 192, 24, 0xFFFFF3B0, 0xFFC8901A, Shader.TileMode.CLAMP));
-            c.drawCircle(PW / 2f, 196, 19, p);
-            p.setShader(null);
-            text(c, "\u271D", PW / 2f, 205, 22, 0xFF3A130B, Paint.Align.CENTER, false);
-        }
-        // placa do título
+        // a capa preenche o painel inteiro (fina e alongada), sem título e sem nome por cima
+        r.set(0, 0, PW, PH);
         p.setStyle(Paint.Style.FILL);
-        p.setColor(0xA6000000);
-        r.set(40, 142, 192, 186);
-        c.drawRoundRect(r, 8, 8, p);
-        text(c, "BÍBLIA", PW / 2f, 168, 26, 0xFFFFD27A, Paint.Align.CENTER, true);
-        text(c, "Edição por Gilberto", PW / 2f, 182, 11.5f, 0xFFFFE9B0, Paint.Align.CENTER, true);
+        p.setFilterBitmap(true);
+        c.drawBitmap(coverBmp, null, r, p);
+        // as duas conquistas ficam nos botões redondos (pomos) das espadas
+        drawSmallMedal(c, 0.150f * PW, 0.117f * PH, sp.getBoolean("medal_gold", false), false);
+        drawSmallMedal(c, 0.857f * PW, 0.117f * PH, sp.getBoolean("medal_rgb", false), true);
+        if (complete()) {                                     // medalha da Bíblia completa: só aqui na capa
+            p.setShader(new RadialGradient(PW / 2f - 4, 176, 24, 0xFFFFF3B0, 0xFFC8901A, Shader.TileMode.CLAMP));
+            c.drawCircle(PW / 2f, 180, 19, p);
+            p.setShader(null);
+            text(c, "\u271D", PW / 2f, 189, 22, 0xFF3A130B, Paint.Align.CENTER, false);
+        }
         // progresso e dublagem
         p.setColor(0xA6000000);
-        r.set(30, 212, 202, 258);
+        r.set(24, 214, 208, 262);
         c.drawRoundRect(r, 8, 8, p);
-        text(c, "Capítulos lidos/ouvidos: " + audio.readCount() + " / 1189", PW / 2f, 226, 9.8f, 0xFFFFFFFF, Paint.Align.CENTER, true);
+        text(c, "Capítulos lidos/ouvidos: " + audio.readCount() + " / 1189", PW / 2f, 229, 9.8f, 0xFFFFFFFF, Paint.Align.CENTER, true);
         p.setColor(0x55FFFFFF);
-        r.set(40, 231, 192, 235);
+        r.set(36, 234, 196, 238);
         c.drawRoundRect(r, 2, 2, p);
         p.setColor(0xFF7CFF8A);
-        r.set(40, 231, 40 + 152 * audio.readCount() / 1189f, 235);
+        r.set(36, 234, 36 + 160 * audio.readCount() / 1189f, 238);
         c.drawRoundRect(r, 2, 2, p);
         int n = audio.fileCount();
-        text(c, n > 0 ? "Dublagem: " + n + " capítulos reconhecidos" : "Dublagem: nenhuma (importe em ▦ Opções)", PW / 2f, 250, 9f,
+        text(c, n > 0 ? "Dublagem: " + n + " capítulos reconhecidos" : "Dublagem: nenhuma (importe em ▦ Opções)", PW / 2f, 254, 9f,
                 n > 0 ? 0xFF7CFF8A : 0xFFFFB066, Paint.Align.CENTER, true);
-        button(c, 28, 264, 204, 298, "CONTINUAR", 0xFFFFD27A, 13);
-        button(c, 28, 304, 204, 338, "LIVROS", 0xFF9FE8FF, 13);
+        button(c, 24, 270, 208, 304, "CONTINUAR", 0xFFFFD27A, 13);
+        button(c, 24, 310, 208, 344, "LIVROS", 0xFF9FE8FF, 13);
     }
 
     private void drawSmallMedal(Canvas c, float cx, float cy, boolean has, boolean rainbow) {
@@ -776,12 +767,13 @@ final class BiblePanel extends View {
 
     // ---------- toques ----------
     private int hit(float x, float y) {
-        if (Math.hypot(x - 208, y - 24) < 15) return A_CLOSE;
-        if (Math.hypot(x - 176, y - 24) < 15) return A_BIG;
+        float by = (screen == COVER && coverBmp != null) ? 13 : 24;
+        if (Math.hypot(x - 208, y - by) < 15) return A_CLOSE;
+        if (Math.hypot(x - 176, y - by) < 15) return A_BIG;
         if (screen != COVER && Math.hypot(x - 24, y - 24) < 15) return A_BACK;
         if (screen == COVER) {
-            if (y >= 268 && y <= 304 && x >= 28 && x <= 204) return A_CONT;
-            if (y >= 310 && y <= 342 && x >= 28 && x <= 204) return A_BOOKS;
+            if (y >= 270 && y <= 304 && x >= 24 && x <= 208) return A_CONT;
+            if (y >= 310 && y <= 344 && x >= 24 && x <= 208) return A_BOOKS;
         } else if (screen == READER) {
             if (y >= 322 && y <= 350 && x >= TL && x < TL + 7 * 29.2f) {
                 int i = (int) ((x - TL) / 29.2f);

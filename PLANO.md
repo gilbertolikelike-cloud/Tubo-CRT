@@ -166,3 +166,19 @@ Tudo que ele mandou está em `referencias/` (gifs, folhas de sprites, os 2 model
 - Gatilhos: a cada 50 patos mortos (kills total % 50) e por tempo escalonado X, 2X, 3X, 4X (30 min, 1 h, 1 h 30, 2 h; fica em 2 h; bible_stage). Sempre o próximo capítulo em ordem (bible_seq).
 - Cores v2 (VerseStyler): fala só recebe a cor de Deus/Jesus/profetas/discípulos quando o dono é certo; falas de outras pessoas ganham a cor "outras" (col_other); nomes pintados (col_names). Testado no texto real: 1199 falas de dono certo, 4152 de outras pessoas, ~19,8 mil nomes.
 - Painel principal não fecha sozinho (v17).
+
+## IDEIAS ANOTADAS (NÃO FAZER AINDA) — pedido do Gilberto
+- Trazer mais efeitos para o filtro de tela, tipo HDR e outros ("efeitos de lá").
+  Possíveis para estudar quando ele mandar fazer: HDR falso (curva de contraste/realce de brilho e cor), bloom/brilho nas luzes, realce de cor/saturação, nitidez, vinheta, curvatura da tela, desfoque de movimento, granulado de filme, aberração de cor.
+  Cuidado: o filtro é uma sobreposição (overlay) e não consegue mudar os pixels de outros apps; efeitos que precisam ler a tela exigem captura (MediaProjection) e OpenGL (o mesmo caminho da lupa e do olho de peixe). Perguntar a ele quais efeitos exatos quer e se aceita a captura de tela.
+
+## IDEIA ANOTADA (NÃO FAZER AINDA) — explicação da Bíblia versículo por versículo
+- Pedido do Gilberto: explicação básica de cada versículo, "bom para não errar" (ajuda a entender o texto).
+- Ideias de como ficaria: botão no leitor (por versículo ou por capítulo) que mostra a explicação embaixo do versículo; opção de ligar/desligar; letra ajustável como o resto do leitor.
+- Fonte do conteúdo: NÃO inventar nem gerar explicações em massa (são ~30 mil versículos e erro doutrinário é o que ele quer evitar). Fazer como a dublagem: o app só IMPORTA um arquivo que ele fornecer (txt/zip), no formato que ele escolher, sem alterar nada. Perguntar a ele qual é a fonte e o formato (por versículo "Livro cap:ver", por capítulo, por livro).
+- Se a fonte for outra tradução/comentário, combinar com o tema dos módulos do theWord (também anotados): podem usar o mesmo importador.
+- ATUALIZAÇÃO da ideia das explicações: o Gilberto quer que o CLAUDE escreva, um capítulo por vez, quando ele pedir ("próximo capítulo"). Regras: explicação básica e simples (quem fala, onde, o que acontece, palavras difíceis), sem doutrina de denominação, usando os nomes da edição dele (Elohim, Yahuah, Yahusha); marcar o que for incerto; ele revisa. Escala: 1189 capítulos / ~30 mil versículos = muitas mensagens; começar por livros que ele escolher. Formato do arquivo importável: uma linha por versículo "Livro cap:ver | explicação" (o app casa pelo livro/capítulo/versículo do texto dele). Guardar o arquivo acumulado e entregar sempre completo no zip/arquivo separado.
+
+## Atualização 14 (versionCode 19)
+- Bug da espada (vídeo 25/11): ao abrir/fechar o painel a espada (Bob da noite) aparecia deslocada por 1-2 quadros (pulava para cima/esquerda). Causa: a janela muda de tamanho/lugar um instante depois do pedido e o desenho usava o lugar "pedido" (winX/winY). Correção: desenhar pelo lugar real da janela (getLocationOnScreen -> drawOX/drawOY) em onDraw/drawBob.
+- Capa da Bíblia: sem o título "BÍBLIA" e sem "Edição por Gilberto"; a arte preenche o painel inteiro (sem moldura de madeira); botões ⤢ e ✕ sobem no topo; medalhas nos pomos das espadas.

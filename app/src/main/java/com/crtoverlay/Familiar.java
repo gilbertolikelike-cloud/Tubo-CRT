@@ -503,7 +503,7 @@ final class Familiar {
                 bankAt = 3 + rnd.nextInt(3); // o próximo tiro de ricochete vem entre 3 e 5 erros
                 hitStop = 0.07f;            // a espada pesada "trava" um instante no impacto
                 spawnSparks(dx, dy, 20);
-                if (GameState.killsTotal(sp) % 50 == 49) BibleAudio.get(appCtx).triggerNext(); // a cada 50 patos: um capítulo com dublagem
+                if (GameState.killsTotal(sp) % 50 == 49) BibleAudio.get(app).triggerNext(); // a cada 50 patos: um capítulo com dublagem
                 if (GameState.addKill(sp, 60)) { // pato morto: soma kills e EXP; pode subir de nível
                     level = GameState.level(sp);
                     levelUpUntil = t + 2.5f;

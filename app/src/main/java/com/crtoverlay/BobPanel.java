@@ -161,6 +161,8 @@ public class BobPanel extends View implements Familiar.Host {
     private float anim;                           // 0 fechado .. 1 aberto
     private float bobW, bobH, bobAlpha = 1f, bobX, bobY;   // Bob na tela (px)
     private float panX, panY, winX, winY;                  // painel e janela na tela (px)
+    private float drawOX, drawOY;                          // onde a janela ESTÁ de verdade na tela (o sistema move depois de pedirmos)
+    private final int[] locBuf = new int[2];
     private int screenW, screenH, fx, fy;         // fx, fy: posição do Bob, em milésimos do espaço livre da tela
     private int mode = M_NONE;
     private float downRawX, downRawY, startBobX, startBobY, lastAngle, volume, brightness;
@@ -869,8 +871,20 @@ public class BobPanel extends View implements Familiar.Host {
 
     // ---------- desenho ----------
     @Override protected void onDraw(Canvas c) {
+        // Bug da espada pulando: ao abrir/fechar, a janela muda de tamanho e de lugar um instante DEPOIS do pedido,
+        // então desenhar pelo lugar "pedido" (winX/winY) fazia a espada aparecer deslocada por 1-2 quadros.
+        // Agora desenha pelo lugar real da janela na tela.
+        drawOX = winX;
+        drawOY = winY;
+        if (isAttachedToWindow()) {
+            getLocationOnScreen(locBuf);
+            if (Math.abs(locBuf[0] - winX) < screenW && Math.abs(locBuf[1] - winY) < screenH) {
+                drawOX = locBuf[0];
+                drawOY = locBuf[1];
+            }
+        }
         if (anim > 0.001f) {
-            float pl = panX - winX, pt = panY - winY;
+            float pl = panX - drawOX, pt = panY - drawOY;
             float pivotX = clamp(bobX + bobW / 2f - panX, 0f, panW);
             float pivotY = clamp(bobY + bobH / 2f - panY, 0f, panH);
             int save = c.saveLayerAlpha(pl, pt, pl + panW, pt + panH, (int) (255 * Math.min(1f, anim)));
@@ -889,7 +903,7 @@ public class BobPanel extends View implements Familiar.Host {
 
     private void drawBob(Canvas c) {
         if (duelHidden) return; // a espada saiu do painel pra lutar
-        float lx = bobX - winX, ly = bobY - winY, cx = lx + bobW / 2f, cy = ly + bobH / 2f;
+        float lx = bobX - drawOX, ly = bobY - drawOY, cx = lx + bobW / 2f, cy = ly + bobH / 2f;
         boolean onRightHalf = bobX + bobW / 2f > screenW / 2f;
         boolean onTop = bobY + bobH / 2f < screenH * 0.35f; // lá em cima ele fica de cabeça pra baixo
         c.save();
