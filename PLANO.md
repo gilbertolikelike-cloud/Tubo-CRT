@@ -158,3 +158,11 @@ Tudo que ele mandou está em `referencias/` (gifs, folhas de sprites, os 2 model
 - Painel principal NÃO fecha mais sozinho (era 10 s). Opção ▦ "Painel fecha sozinho..." (padrão desligado).
 - Dublagem agora vive em BibleAudio (fora do painel): fechar o painel não para o áudio; wake lock; ■ para; no modo manual segue em ordem Gn..Ap.
 - Sem versículo aleatório: balão da espada mostra versículos em ordem (verse_seq). A cada 30 min (opção ▦, 5-180 min) abre o painel + Bíblia no próximo capítulo da fila (bible_seq = último ouvido + 1) e toca a dublagem (só 1 capítulo por vez).
+
+## Atualização 13 (versionCode 18)
+- Capa nova da Bíblia (assets/bible_cover.png, esticada fina e alongada) com as medalhas OURO/RGB nos pomos redondos das espadas; medalha da Bíblia completa no centro do portão (só quando 1189/1189). As chaves medal_gold/medal_rgb ainda não são concedidas por nada (regras a definir).
+- Espada do Capítulo (assets/rapier.png): aparece no leitor quando o capítulo ainda não foi ouvido, explicação curta, pega fogo em espiral (3 fios) e apaga quando o capítulo é ouvido/lido.
+- Bíblia LIVRE: depois de abrir (1,3 s) solta dos canos, painel principal sai da tela, arrasta pelo título, só fecha no X dela; no 30 min/50 patos abre sozinha (showFree).
+- Gatilhos: a cada 50 patos mortos (kills total % 50) e por tempo escalonado X, 2X, 3X, 4X (30 min, 1 h, 1 h 30, 2 h; fica em 2 h; bible_stage). Sempre o próximo capítulo em ordem (bible_seq).
+- Cores v2 (VerseStyler): fala só recebe a cor de Deus/Jesus/profetas/discípulos quando o dono é certo; falas de outras pessoas ganham a cor "outras" (col_other); nomes pintados (col_names). Testado no texto real: 1199 falas de dono certo, 4152 de outras pessoas, ~19,8 mil nomes.
+- Painel principal não fecha sozinho (v17).

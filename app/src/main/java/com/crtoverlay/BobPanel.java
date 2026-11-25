@@ -1413,26 +1413,30 @@ public class BobPanel extends View implements Familiar.Host {
     private BiblePanel medalPanel;
 
     /** MEDALHAS (dentro da gaveta): abre ou fecha o 2º painel. */
+    private void createBible() {
+        medalPanel = new BiblePanel(ctx, wm, viaAccessibility, sp);
+        medalPanel.onResize = () -> { // tamanho normal <-> grande: refaz a janela e abre de novo
+            boolean wasFree = medalPanel != null && !medalPanel.isDocked();
+            if (medalPanel != null) medalPanel.closeNow();
+            medalPanel = null;
+            if (wasFree) revealBible(-1, -1); else openMedals();
+        };
+        // a Bíblia fica LIVRE: o painel principal sai da tela e ela continua (dá para abrir o principal de novo)
+        medalPanel.onDetach = () -> { if (open) setOpen(false, true); };
+    }
+
     private void openMedals() {
-        if (medalPanel == null) {
-            medalPanel = new BiblePanel(ctx, wm, viaAccessibility, sp);
-            medalPanel.onResize = () -> { // tamanho normal <-> grande: refaz a janela e abre de novo
-                if (medalPanel != null) medalPanel.closeNow();
-                medalPanel = null;
-                openMedals();
-            };
-        }
+        if (medalPanel == null) createBible();
         medalPanel.toggle(panX, panY, panW, panH);
     }
 
     /** A cada 30 min: abre o painel principal e a Bíblia direto no capítulo que começou a tocar. */
     void revealBible(int book, int chap) {
-        if (!open) setOpen(true, true);
-        handler.postDelayed(() -> {
-            if (medalPanel == null) openMedals();
-            else if (!medalPanel.isShowing()) medalPanel.toggle(panX, panY, panW, panH);
-            if (medalPanel != null) medalPanel.openAt(book, chap);
-        }, 450);
+        handler.post(() -> {
+            if (medalPanel == null) createBible();
+            if (!medalPanel.isShowing()) medalPanel.showFree(panX, panY);   // aparece livre, sem precisar do painel principal
+            if (book >= 0) medalPanel.openAt(book, chap);
+        });
     }
 
     private ClickerPanel clickerPanel;
@@ -1444,8 +1448,7 @@ public class BobPanel extends View implements Familiar.Host {
     }
 
     private void closeMedals() {
-        if (medalPanel != null) medalPanel.close();
-        if (clickerPanel != null) clickerPanel.close();
+        if (clickerPanel != null) clickerPanel.close();   // a Bíblia é livre: só fecha no X dela
     }
 
     // ---------- Familiar.Host: a espada do painel que vai lutar de noite ----------

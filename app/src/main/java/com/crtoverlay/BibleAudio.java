@@ -23,6 +23,10 @@ final class BibleAudio {
         void onChapter(int prevBook, int prevChap);
     }
 
+    /** Quem mostra o painel da Bíblia quando um capítulo começa sozinho (o serviço define). */
+    interface Reveal { void show(int book, int chap); }
+    static volatile Reveal reveal;
+
     private static BibleAudio inst;
 
     static synchronized BibleAudio get(Context c) {
@@ -184,8 +188,17 @@ final class BibleAudio {
         try { m.seekTo((int) (m.getDuration() * Math.max(0f, Math.min(1f, f)))); } catch (RuntimeException ignored) { /* sem player */ }
     }
 
+    /** Dispara o próximo capítulo da fila (tempo ou 50 patos): toca a dublagem e abre a Bíblia nele. */
+    boolean triggerNext() {
+        int[] loc = playNextScheduled();
+        if (loc == null) return false;
+        final Reveal r = reveal;
+        if (r != null) main.post(() -> r.show(loc[0], loc[1]));
+        return true;
+    }
+
     /**
-     * A cada 30 minutos: o próximo capítulo da fila (Gn..Ap, em ordem, sem sorteio) com a dublagem.
+     * Próximo capítulo da fila automática: o próximo capítulo da fila (Gn..Ap, em ordem, sem sorteio) com a dublagem.
      * Devolve {livro, capítulo} ou null se não pôde começar.
      */
     int[] playNextScheduled() {

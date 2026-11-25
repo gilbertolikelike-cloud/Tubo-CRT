@@ -503,6 +503,7 @@ final class Familiar {
                 bankAt = 3 + rnd.nextInt(3); // o próximo tiro de ricochete vem entre 3 e 5 erros
                 hitStop = 0.07f;            // a espada pesada "trava" um instante no impacto
                 spawnSparks(dx, dy, 20);
+                if (GameState.killsTotal(sp) % 50 == 49) BibleAudio.get(app).triggerNext(); // a cada 50 patos: um capítulo com dublagem
                 if (GameState.addKill(sp, 60)) { // pato morto: soma kills e EXP; pode subir de nível
                     level = GameState.level(sp);
                     levelUpUntil = t + 2.5f;
@@ -588,8 +589,9 @@ final class Familiar {
             String book = verse[1].isEmpty() ? "" : verse[1].substring(0, Math.max(0, verse[1].lastIndexOf(' ')));
             boolean nt = v != null && idx >= 0 && v.isNewTestament(v.bookOf(idx));
             android.text.SpannableString styled = new android.text.SpannableString(text); // fala de Jesus, de Deus, dos profetas e dos discípulos em cores
-            for (int[] sp2 : (v != null && idx >= 0 ? VerseStyler.spans(v, idx, sp.getInt("col_god", 0xFF0A3CA8), sp.getInt("col_jesus", 0xFFC00018),
-                    sp.getInt("col_prophet", 0xFF9A6A00), sp.getInt("col_disciple", 0xFF0B5D1E)) : new java.util.ArrayList<int[]>())) {
+            for (int[] sp2 : (v != null && idx >= 0 ? VerseStyler.spans(v, idx, new int[]{sp.getInt("col_god", 0xFF0A3CA8), sp.getInt("col_jesus", 0xFFC00018),
+                    sp.getInt("col_prophet", 0xFF9A6A00), sp.getInt("col_disciple", 0xFF0B5D1E), sp.getInt("col_other", 0xFF00796B)},
+                    sp.getBoolean("col_names", true), sp.getBoolean("col_other_on", true)) : new java.util.ArrayList<int[]>())) {
                 styled.setSpan(new android.text.style.ForegroundColorSpan(sp2[2]), sp2[0], sp2[1], android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
             }
             verseLayout = layout(styled, verseText, width);

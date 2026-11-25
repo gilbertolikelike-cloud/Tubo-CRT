@@ -44,7 +44,7 @@ final class BiblePanel extends View {
     private static final float GAP = 28f;
     private static final float PW = 232f, PH = 360f;
     private static final float TL = 14, TT = 48, TR = 218, TB = 350, ROW = 30;
-    private static final float RT = 296;                      // fim da área de texto no leitor
+    private static final float RT = 268;                      // fim da área de texto no leitor
     private static final int COVER = 0, BOOKS = 1, CHAPS = 2, READER = 3;
     // ações dos botões
     private static final int A_CLOSE = 1, A_BACK = 2, A_BIG = 3, A_CONT = 4, A_BOOKS = 5, A_PREV = 6, A_PLAY = 7, A_STOP = 8,
@@ -67,7 +67,14 @@ final class BiblePanel extends View {
     private final android.os.Handler handler = new android.os.Handler(android.os.Looper.getMainLooper());
     private boolean showing, closing;
     private float finalX;
-    Runnable onResize;
+    Runnable onResize, onDetach;
+    private boolean docked = true, freeStart;
+    private Bitmap coverBmp, rapierBmp;
+    private int swordG = -1;
+    private long swordAppear, burnStart;
+    private boolean swordWasUnread;
+    private float dragStartX, dragStartY;
+    private int dragLpX, dragLpY;
 
     private volatile Verses verses;
     private final BibleAudio audio;
@@ -121,12 +128,31 @@ final class BiblePanel extends View {
         } catch (java.io.IOException | RuntimeException ignored) {
             pipe = null;
         }
+        coverBmp = loadAsset("bible_cover.png");
+        rapierBmp = loadAsset("rapier.png");
         lp = new WindowManager.LayoutParams(w, h,
                 viaAccessibility ? WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY : WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
         lp.gravity = Gravity.TOP | Gravity.START;
+    }
+
+    private Bitmap loadAsset(String name) {
+        try (InputStream in = ctx.getAssets().open(name)) {
+            return BitmapFactory.decodeStream(in);
+        } catch (java.io.IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    boolean isDocked() { return docked; }
+
+    /** Abre já livre (sem o painel principal), usado quando um capítulo começa sozinho. */
+    void showFree(float panelX, float panelY) {
+        freeStart = true;
+        docked = false;
+        show(panelX, panelY);
     }
 
     // ---------- ciclo de vida ----------
@@ -155,6 +181,15 @@ final class BiblePanel extends View {
         setLayerType(LAYER_TYPE_HARDWARE, null);   // desliza pela GPU: sem engasgar
         animate().translationX(0f).alpha(1f).setDuration(300).setInterpolator(new DecelerateInterpolator(2f))
                 .withEndAction(() -> setLayerType(LAYER_TYPE_NONE, null)).start();
+        if (!freeStart) {
+            handler.postDelayed(() -> {
+                if (showing && !closing && docked) {
+                    docked = false;                    // fica LIVRE: os canos somem e o painel principal sai da tela
+                    invalidate();
+                    if (onDetach != null) onDetach.run();
+                }
+            }, 1300);
+        }
         final Context app = ctx.getApplicationContext();
         new Thread(() -> {
             Verses v = Verses.shared(app);
@@ -257,8 +292,9 @@ final class BiblePanel extends View {
         Verses v = verses;
         if (v == null) return;
         int first = v.chapterFirst(selBook, selChap), len = v.chapterLength(selBook, selChap);
-        int god = lift(sp.getInt("col_god", 0xFF0A3CA8)), jesus = lift(sp.getInt("col_jesus", 0xFFC00018)),
-                prophet = lift(sp.getInt("col_prophet", 0xFF9A6A00)), disc = lift(sp.getInt("col_disciple", 0xFF0B5D1E));
+        int[] pal = {lift(sp.getInt("col_god", 0xFF0A3CA8)), lift(sp.getInt("col_jesus", 0xFFC00018)),
+                lift(sp.getInt("col_prophet", 0xFF9A6A00)), lift(sp.getInt("col_disciple", 0xFF0B5D1E)), lift(sp.getInt("col_other", 0xFF00796B))};
+        boolean namesOn = sp.getBoolean("col_names", true), othersOn = sp.getBoolean("col_other_on", true);
         boolean colors = sp.getBoolean("bible_colors", true);
         SpannableStringBuilder sb = new SpannableStringBuilder();
         vStart = new int[len];
@@ -271,7 +307,7 @@ final class BiblePanel extends View {
             sb.setSpan(new RelativeSizeSpan(0.72f), vStart[i], sb.length(), 0);
             int base = sb.length();
             sb.append(v.text(first + i));
-            if (colors) for (int[] s : VerseStyler.spans(v, first + i, god, jesus, prophet, disc))
+            if (colors) for (int[] s : VerseStyler.spans(v, first + i, pal, namesOn, othersOn))
                 sb.setSpan(new ForegroundColorSpan(s[2]), base + s[0], base + s[1], 0);
             vEnd[i] = sb.length();
             sb.append('\n');
@@ -408,7 +444,7 @@ final class BiblePanel extends View {
         } else {
             drawReader(c, v);
         }
-        drawPipes(c);
+        if (docked) drawPipes(c);
         c.restore();
     }
 
@@ -446,49 +482,59 @@ final class BiblePanel extends View {
     }
 
     private void drawCover(Canvas c, Verses v) {
-        p.setStyle(Paint.Style.FILL);
-        p.setShader(new LinearGradient(0, TT - 2, PW, TB, 0xFF6E2A1A, 0xFF3A130B, Shader.TileMode.CLAMP));
+        // arte da capa (couro, portão e as duas espadas), esticada fina e alongada
         r.set(TL, TT - 2, TR, TB);
-        c.drawRoundRect(r, 10, 10, p);
-        p.setShader(null);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(1.6f);
-        p.setColor(0xFFD9A441);
-        r.set(TL + 5, TT + 3, TR - 5, TB - 5);
-        c.drawRoundRect(r, 7, 7, p);
-        // medalhas: ouro e RGB dos patos (sempre aqui) e a da Bíblia completa (só quando completa)
-        drawPetMedal(c, 52, 86, sp.getBoolean("medal_gold", false), false);
-        drawPetMedal(c, 180, 86, sp.getBoolean("medal_rgb", false), true);
-        if (complete()) {
+        if (coverBmp != null) {
             p.setStyle(Paint.Style.FILL);
-            p.setShader(new RadialGradient(110, 80, 34, 0xFFFFF3B0, 0xFFC8901A, Shader.TileMode.CLAMP));
-            c.drawCircle(116, 86, 25, p);
-            p.setShader(null);
-            text(c, "\u271D", 116, 96, 26, 0xFF3A130B, Paint.Align.CENTER, false);
+            p.setFilterBitmap(true);
+            c.drawBitmap(coverBmp, null, r, p);
+        } else {
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(0xFF3A130B);
+            c.drawRoundRect(r, 10, 10, p);
         }
-        text(c, "OURO", 52, 122, 9, 0xFFEFE6CC, Paint.Align.CENTER, true);
-        text(c, "RGB", 180, 122, 9, 0xFFEFE6CC, Paint.Align.CENTER, true);
-        if (complete()) text(c, "COMPLETA", 116, 122, 9, 0xFFFFD27A, Paint.Align.CENTER, true);
-        text(c, "BÍBLIA", PW / 2f, 160, 30, 0xFFFFD27A, Paint.Align.CENTER, true);
-        text(c, "Edição por Gilberto", PW / 2f, 180, 13.5f, 0xFFFFE9B0, Paint.Align.CENTER, true);
-        p.setStyle(Paint.Style.STROKE);
-        p.setStrokeWidth(1.2f);
-        p.setColor(0xFFD9A441);
-        c.drawLine(50, 190, 182, 190, p);
-        text(c, "texto-base NTLH · nomes ajustados", PW / 2f, 204, 8.6f, 0xFFE6D3A8, Paint.Align.CENTER, false);
-        text(c, "Capítulos lidos/ouvidos: " + audio.readCount() + " / 1189", PW / 2f, 228, 10, 0xFFFFFFFF, Paint.Align.CENTER, true);
+        // as duas conquistas ficam nos botões redondos (pomos) das espadas
+        float cw = TR - TL, ch = TB - (TT - 2);
+        drawSmallMedal(c, TL + 0.150f * cw, TT - 2 + 0.117f * ch, sp.getBoolean("medal_gold", false), false);
+        drawSmallMedal(c, TL + 0.857f * cw, TT - 2 + 0.117f * ch, sp.getBoolean("medal_rgb", false), true);
+        if (complete()) {                                     // medalha da Bíblia completa: só aqui na capa
+            p.setStyle(Paint.Style.FILL);
+            p.setShader(new RadialGradient(PW / 2f - 4, 192, 24, 0xFFFFF3B0, 0xFFC8901A, Shader.TileMode.CLAMP));
+            c.drawCircle(PW / 2f, 196, 19, p);
+            p.setShader(null);
+            text(c, "\u271D", PW / 2f, 205, 22, 0xFF3A130B, Paint.Align.CENTER, false);
+        }
+        // placa do título
         p.setStyle(Paint.Style.FILL);
+        p.setColor(0xA6000000);
+        r.set(40, 142, 192, 186);
+        c.drawRoundRect(r, 8, 8, p);
+        text(c, "BÍBLIA", PW / 2f, 168, 26, 0xFFFFD27A, Paint.Align.CENTER, true);
+        text(c, "Edição por Gilberto", PW / 2f, 182, 11.5f, 0xFFFFE9B0, Paint.Align.CENTER, true);
+        // progresso e dublagem
+        p.setColor(0xA6000000);
+        r.set(30, 212, 202, 258);
+        c.drawRoundRect(r, 8, 8, p);
+        text(c, "Capítulos lidos/ouvidos: " + audio.readCount() + " / 1189", PW / 2f, 226, 9.8f, 0xFFFFFFFF, Paint.Align.CENTER, true);
         p.setColor(0x55FFFFFF);
-        r.set(30, 233, 202, 237);
+        r.set(40, 231, 192, 235);
         c.drawRoundRect(r, 2, 2, p);
         p.setColor(0xFF7CFF8A);
-        r.set(30, 233, 30 + 172 * audio.readCount() / 1189f, 237);
+        r.set(40, 231, 40 + 152 * audio.readCount() / 1189f, 235);
         c.drawRoundRect(r, 2, 2, p);
         int n = audio.fileCount();
-        text(c, n > 0 ? "Dublagem: " + n + " capítulos reconhecidos" : "Dublagem: nenhuma (importe em ▦ Opções)", PW / 2f, 254, 9.2f,
+        text(c, n > 0 ? "Dublagem: " + n + " capítulos reconhecidos" : "Dublagem: nenhuma (importe em ▦ Opções)", PW / 2f, 250, 9f,
                 n > 0 ? 0xFF7CFF8A : 0xFFFFB066, Paint.Align.CENTER, true);
-        button(c, 28, 268, 204, 304, "CONTINUAR  " + shortRef(v), 0xFFFFD27A, 12.5f);
-        button(c, 28, 310, 204, 342, "LIVROS", 0xFF9FE8FF, 13);
+        button(c, 28, 264, 204, 298, "CONTINUAR", 0xFFFFD27A, 13);
+        button(c, 28, 304, 204, 338, "LIVROS", 0xFF9FE8FF, 13);
+    }
+
+    private void drawSmallMedal(Canvas c, float cx, float cy, boolean has, boolean rainbow) {
+        c.save();
+        c.translate(cx, cy);
+        c.scale(0.36f, 0.36f);
+        drawPetMedal(c, 0f, 0f, has, rainbow);
+        c.restore();
     }
 
     private String shortRef(Verses v) { return ""; }
@@ -560,6 +606,7 @@ final class BiblePanel extends View {
             layout.draw(c);
         }
         c.restore();
+        drawChapterSword(c, v);
         // barra de tempo (toque pra pular) e estado do áudio
         boolean here = audio.book == selBook && audio.chap == selChap;
         float frac = 0f;
@@ -573,12 +620,12 @@ final class BiblePanel extends View {
         }
         p.setStyle(Paint.Style.FILL);
         p.setColor(0x55FFFFFF);
-        r.set(TL, RT + 6, TR, RT + 10);
+        r.set(TL, RT + 38, TR, RT + 41);
         c.drawRoundRect(r, 2, 2, p);
         p.setColor(0xFFFFD27A);
-        r.set(TL, RT + 6, TL + (TR - TL) * frac, RT + 10);
+        r.set(TL, RT + 38, TL + (TR - TL) * frac, RT + 41);
         c.drawRoundRect(r, 2, 2, p);
-        text(c, info, PW / 2f, RT + 21, 9.5f, 0xFFEFE6CC, Paint.Align.CENTER, true);
+        text(c, info, PW / 2f, RT + 51, 9.2f, 0xFFEFE6CC, Paint.Align.CENTER, true);
         // botões: anterior, tocar/pausar, parar, próximo, letra menor, letra maior, seguir texto
         String[] lab = {"\u25C0", audio.isPlaying() ? "\u275A\u275A" : "\u25B6", "\u25A0", "\u25B6\u25B6", "A\u2212", "A+", follow ? "\u2316" : "\u2013"};
         int[] col = {0xFF9FE8FF, 0xFF7CFF8A, 0xFFFF8A8A, 0xFF9FE8FF, 0xFFFFD27A, 0xFFFFD27A, follow ? 0xFF7CFF8A : 0xFF888888};
@@ -656,6 +703,77 @@ final class BiblePanel extends View {
     }
 
 
+    // ---------- Espada do Capítulo: pega fogo em espiral e apaga quando o capítulo é ouvido ----------
+    private void drawChapterSword(Canvas c, Verses v) {
+        int g = v.globalChapter(selBook, selChap);
+        boolean read = audio.isRead(g);
+        long now = android.os.SystemClock.uptimeMillis();
+        if (g != swordG) {
+            swordG = g;
+            swordAppear = now;
+            burnStart = 0;
+            swordWasUnread = !read;
+        }
+        if (!read) { swordWasUnread = true; burnStart = 0; }
+        else if (swordWasUnread && burnStart == 0) burnStart = now;      // acabou de ser ouvido: apaga
+        float burn = burnStart > 0 ? Math.max(0f, 1f - (now - burnStart) / 2200f) : 1f;
+        if (rapierBmp == null || (read && burn <= 0f) || (read && burnStart == 0)) return;
+        float ignite = Math.min(1f, (now - swordAppear) / 2600f);
+        ignite = ignite * ignite * (3f - 2f * ignite);
+        float inten = ignite * burn;
+        float t = (now % 100000L) / 1000f;
+        float sx = TL + 2, sw = 200, sh = sw * rapierBmp.getHeight() / (float) rapierBmp.getWidth();
+        float sy = RT + 2 + (32 - sh) / 2f, bladeY = sy + sh * 0.46f;
+        p.setStyle(Paint.Style.FILL);
+        p.setColor(0x66000000);
+        r.set(TL, RT + 2, TR, RT + 34);
+        c.drawRoundRect(r, 6, 6, p);
+        p.setAlpha(Math.round(255 * Math.min(1f, burn + 0.15f)));
+        p.setFilterBitmap(true);
+        r.set(sx, sy, sx + sw, sy + sh);
+        c.drawBitmap(rapierBmp, null, r, p);
+        p.setAlpha(255);
+        // fogo em espiral em volta da lâmina (3 fios defasados)
+        float x0 = sx + sw * 0.22f, x1 = sx + sw * 0.985f, reach = x0 + (x1 - x0) * ignite;
+        for (int strand = 0; strand < 3; strand++) {
+            for (int i = 0; i < 46; i++) {
+                float u = i / 45f, x = x0 + (x1 - x0) * u;
+                if (x > reach) break;
+                float ph = u * 30f - t * 7.5f + strand * 2.094f;
+                float amp = 4.4f * (0.65f + 0.35f * (float) Math.sin(t * 3.1f + u * 9f));
+                float depth = (float) Math.cos(ph);                         // frente/trás da espiral
+                float flick = 0.75f + 0.45f * (float) Math.sin(t * 14f + i * 1.9f + strand * 2f);
+                float rad = (2.2f + 1.7f * (0.5f + 0.5f * depth)) * flick * (0.45f + 0.55f * inten);
+                float yy = bladeY + (float) Math.sin(ph) * amp - rad * 0.55f;
+                float near = (reach - x) < 14f ? 1.35f : 1f;               // a ponta da chama é maior
+                p.setColor(Color.argb((int) (70 * inten * (0.6f + 0.4f * depth)), 255, 58, 0));
+                c.drawCircle(x, yy, rad * 1.9f * near, p);
+                p.setColor(Color.argb((int) (140 * inten), 255, 154, 31));
+                c.drawCircle(x, yy, rad * 1.2f * near, p);
+                p.setColor(Color.argb((int) (210 * inten), 255, 238, 130));
+                c.drawCircle(x, yy, rad * 0.6f * near, p);
+            }
+        }
+        // faíscas subindo
+        for (int k = 0; k < 12; k++) {
+            float ph = (t * 0.8f + k * 0.37f) % 1f;
+            float x = x0 + (reach - x0) * ((k * 0.61f) % 1f);
+            p.setColor(Color.argb((int) ((1f - ph) * 230 * inten), 255, 220, 120));
+            c.drawCircle(x + (float) Math.sin(t * 5 + k) * 2f, bladeY - 4 - ph * 17f, 1.1f, p);
+        }
+        // explicação curtinha (só nos primeiros segundos)
+        long age = now - swordAppear;
+        if (burnStart == 0 && age < 9000) {
+            float a = Math.min(1f, Math.min(age / 400f, (9000 - age) / 1000f));
+            p.setColor(Color.argb((int) (190 * a), 0, 0, 0));
+            r.set(TL + 6, RT - 30, TR - 6, RT - 4);
+            c.drawRoundRect(r, 7, 7, p);
+            text(c, "ESPADA DO CAPÍTULO", PW / 2f, RT - 18, 9.5f, Color.argb((int) (255 * a), 255, 210, 122), Paint.Align.CENTER, true);
+            text(c, "ouça até o fim e o fogo se apaga", PW / 2f, RT - 8, 8.6f, Color.argb((int) (255 * a), 255, 255, 255), Paint.Align.CENTER, false);
+        }
+        postInvalidateOnAnimation();                                       // anima suave enquanto a espada existe
+    }
+
     // ---------- toques ----------
     private int hit(float x, float y) {
         if (Math.hypot(x - 208, y - 24) < 15) return A_CLOSE;
@@ -670,7 +788,7 @@ final class BiblePanel extends View {
                 int[] acts = {A_PREV, A_PLAY, A_STOP, A_NEXT, A_FDN, A_FUP, A_FOLLOW};
                 return acts[Math.min(6, i)];
             }
-            if (y >= RT + 2 && y <= RT + 14 && x >= TL && x <= TR) return A_SEEK;
+            if (y >= RT + 34 && y <= RT + 46 && x >= TL && x <= TR) return A_SEEK;
         }
         return 0;
     }
@@ -744,9 +862,25 @@ final class BiblePanel extends View {
                 startScroll = screen == READER ? textScroll : listScroll;
                 moved = false;
                 hitAction = hit(x, y);
+                if (hitAction == 0 && !docked && y < 44 && x > 44 && x < 160) {
+                    mode = 3;                                              // painel livre: arrasta pelo título
+                    dragStartX = e.getRawX();
+                    dragStartY = e.getRawY();
+                    dragLpX = lp.x;
+                    dragLpY = lp.y;
+                    return true;
+                }
                 mode = hitAction != 0 ? 1 : (x >= TL && x <= TR && y >= TT && y <= (screen == READER ? RT : TB) && screen != COVER ? 2 : 0);
                 return true;
             case MotionEvent.ACTION_MOVE:
+                if (mode == 3) {
+                    DisplayMetrics dm = new DisplayMetrics();
+                    wm.getDefaultDisplay().getMetrics(dm);
+                    lp.x = Math.max(0, Math.min(dm.widthPixels - w, Math.round(dragLpX + e.getRawX() - dragStartX)));
+                    lp.y = Math.max(0, Math.min(dm.heightPixels - h, Math.round(dragLpY + e.getRawY() - dragStartY)));
+                    try { wm.updateViewLayout(this, lp); } catch (RuntimeException ignored) { /* janela saiu */ }
+                    return true;
+                }
                 if (Math.hypot(x - downX, y - downY) > 5) moved = true;
                 if (mode == 2 && moved) {
                     if (screen == READER) {

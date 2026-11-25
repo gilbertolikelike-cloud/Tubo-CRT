@@ -448,6 +448,8 @@ public class MainActivity extends Activity {
         box.addView(dialogButton("Biblioteca de livros (PDF)", v -> startActivity(new Intent(this, BookActivity.class))));
         box.addView(dialogButton("Dublagem da Bíblia (importar ZIP ou pasta)", v -> showVoiceDialog()));
         box.addView(dialogButton("Cores das falas dos versículos", v -> showSpeechColors()));
+        box.addView(switchRow("Colorir os nomes (Elohim, Yahuah, Yahusha, profetas, discípulos)", sp.getBoolean("col_names", true), (b, on) -> sp.edit().putBoolean("col_names", on).apply()));
+        box.addView(switchRow("Colorir as falas de outras pessoas", sp.getBoolean("col_other_on", true), (b, on) -> sp.edit().putBoolean("col_other_on", on).apply()));
         box.addView(dialogButton("Botões da gaveta (você escolhe)", v -> showDrawerDialog()));
         box.addView(dialogButton("TV de vídeo (playlists por pasta)", v -> showTvDialog()));
         box.addView(switchRow("Analisador de espectro (pede permissão de áudio)", sp.getBoolean("spectrum_on", true), (b, on) -> {
@@ -457,8 +459,8 @@ public class MainActivity extends Activity {
             else MusicPlayer.get(this).refreshVisualizer();
         }));
         box.addView(switchRow("Sons do painel (TV de tubo)", sp.getBoolean("ui_sounds", true), (b, on) -> sp.edit().putBoolean("ui_sounds", on).apply()));
-        box.addView(switchRow("Capítulo da Bíblia com dublagem, em ordem (Gn a Ap)", sp.getBoolean("bible_auto", true), (b, on) -> sp.edit().putBoolean("bible_auto", on).apply()));
-        box.addView(slider("De quanto em quanto tempo (minutos)", "bible_every", 5, 180, 30, " min"));
+        box.addView(switchRow("Ler um capítulo da Bíblia sozinho com a dublagem (também a cada 50 patos)", sp.getBoolean("bible_auto", true), (b, on) -> sp.edit().putBoolean("bible_auto", on).apply()));
+        box.addView(slider("Intervalo base (30 = 30 min, depois 1 h, 1 h 30 e 2 h)", "bible_every", 5, 60, 30, " min"));
         box.addView(switchRow("Painel fecha sozinho depois de 10 s (desligado = fica aberto)", sp.getBoolean("panel_autoclose", false), (b, on) -> sp.edit().putBoolean("panel_autoclose", on).apply()));
         box.addView(switchRow("Espada solta depois de 2 min parado", sp.getBoolean("familiar_on", true), (b, on) -> sp.edit().putBoolean("familiar_on", on).apply()));
         box.addView(switchRow("Brilho nunca automático", sp.getBoolean("no_auto_bright", true), (b, on) -> {
@@ -670,9 +672,9 @@ public class MainActivity extends Activity {
         }).start();
     }
 
-    private static final String[] SPEAKERS = {"Jesus (Yahusha)", "Deus (Elohim, Yahuah)", "Profetas", "Discípulos"};
-    private static final String[] SPEAKER_KEYS = {"col_jesus", "col_god", "col_prophet", "col_disciple"};
-    private static final int[] SPEAKER_DEF = {0xFFC00018, 0xFF0A3CA8, 0xFF9A6A00, 0xFF0B5D1E};
+    private static final String[] SPEAKERS = {"Jesus (Yahusha)", "Deus (Elohim, Yahuah)", "Profetas", "Discípulos", "Outras pessoas (falas)"};
+    private static final String[] SPEAKER_KEYS = {"col_jesus", "col_god", "col_prophet", "col_disciple", "col_other"};
+    private static final int[] SPEAKER_DEF = {0xFFC00018, 0xFF0A3CA8, 0xFF9A6A00, 0xFF0B5D1E, 0xFF00796B};
     private static final String[] COLOR_NAMES = {"Vermelho", "Azul", "Dourado", "Verde escuro", "Roxo", "Laranja", "Preto", "Marrom"};
     private static final int[] COLOR_VALUES = {0xFFC00018, 0xFF0A3CA8, 0xFF9A6A00, 0xFF0B5D1E, 0xFF6A1B9A, 0xFFD35400, 0xFF111111, 0xFF6D4C41};
 

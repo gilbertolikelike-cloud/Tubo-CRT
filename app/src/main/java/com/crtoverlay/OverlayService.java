@@ -276,16 +276,23 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
         if (!familiar.isActive() && SystemClock.uptimeMillis() - lastActivity >= IDLE_MS) familiar.start();
     }
 
-    // ---------- um capítulo da Bíblia com dublagem, em ordem, a cada X minutos (padrão 30) ----------
+    // ---------- um capítulo da Bíblia com dublagem, em ordem, sem sorteio ----------
+    // Intervalo: X, 2X, 3X, 4X (padrão 30 min -> 1 h -> 1 h 30 -> 2 h) e fica em 4X. Acontece sozinho, querendo ou não.
     private long bibleDue;
+
+    private long bibleDelay() {
+        int stage = Math.max(0, Math.min(3, sp.getInt("bible_stage", 0)));
+        return Math.max(5, sp.getInt("bible_every", 30)) * (stage + 1) * 60_000L;
+    }
+
     private final Runnable bibleTick = new Runnable() {
         @Override public void run() {
             long now = SystemClock.uptimeMillis();
             if (sp.getBoolean("bible_auto", true) && panel != null && !screenOff && now >= bibleDue) {
-                int[] loc = BibleAudio.get(OverlayService.this).playNextScheduled();
-                if (loc != null) {
-                    panel.revealBible(loc[0], loc[1]);
-                    bibleDue = now + Math.max(5, sp.getInt("bible_every", 30)) * 60_000L;
+                if (BibleAudio.get(OverlayService.this).triggerNext()) {
+                    int stage = Math.max(0, Math.min(3, sp.getInt("bible_stage", 0)));
+                    sp.edit().putInt("bible_stage", Math.min(3, stage + 1)).apply();
+                    bibleDue = now + bibleDelay();
                 }
             }
             idleHandler.postDelayed(this, 15_000);
@@ -294,7 +301,8 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
 
     private void startPanel() {
         if (panel != null || !sp.getBoolean("panel_on", true)) return;
-        bibleDue = SystemClock.uptimeMillis() + Math.max(5, sp.getInt("bible_every", 30)) * 60_000L;
+        bibleDue = SystemClock.uptimeMillis() + bibleDelay();
+        BibleAudio.reveal = (bk, ch) -> { if (panel != null) panel.revealBible(bk, ch); };
         idleHandler.removeCallbacks(bibleTick);
         idleHandler.postDelayed(bibleTick, 15_000);
         panel = new BobPanel(this, wm, viaAccessibility, sp);
@@ -311,6 +319,7 @@ public class OverlayService extends Service implements SharedPreferences.OnShare
         if (panel != null) {
             idleHandler.removeCallbacks(idleCheck);
             idleHandler.removeCallbacks(bibleTick);
+            BibleAudio.reveal = null;
             if (familiar != null) familiar.stop();
             panel.hide();
             panel = null;
