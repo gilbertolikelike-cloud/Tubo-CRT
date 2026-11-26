@@ -135,6 +135,7 @@ final class BiblePanel extends View {
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
+        lp.windowAnimations = R.style.NoWindowAnim;
         lp.gravity = Gravity.TOP | Gravity.START;
     }
 
@@ -237,6 +238,7 @@ final class BiblePanel extends View {
         Verses v = verses;
         if (v == null) return;
         boolean ntDone = false;
+        rows.add(new int[]{2, 0});
         rows.add(new int[]{0, 0});
         for (int b = 0; b < v.bookCount(); b++) {
             if (!ntDone && v.isNewTestament(b)) { rows.add(new int[]{0, 1}); ntDone = true; }
@@ -455,6 +457,8 @@ final class BiblePanel extends View {
     }
 
     private void roundBtn(Canvas c, float cx, float cy, String glyph) {
+        String ic = "\u2190".equals(glyph) ? "voltar" : "\u2922".equals(glyph) ? "expandir" : "\u2198".equals(glyph) ? "minimizar" : "fechar";
+        if (Icons.draw(c, ctx, ic, cx, cy, 11.5f, false)) return;
         p.setStyle(Paint.Style.FILL);
         p.setColor(0xFF050505);
         c.drawCircle(cx, cy, 11, p);
@@ -502,22 +506,6 @@ final class BiblePanel extends View {
             p.setShader(null);
             text(c, "\u271D", PW / 2f, 189, 22, 0xFF3A130B, Paint.Align.CENTER, false);
         }
-        // progresso e dublagem
-        p.setColor(0xA6000000);
-        r.set(24, 214, 208, 262);
-        c.drawRoundRect(r, 8, 8, p);
-        text(c, "Capítulos lidos/ouvidos: " + audio.readCount() + " / 1189", PW / 2f, 229, 9.8f, 0xFFFFFFFF, Paint.Align.CENTER, true);
-        p.setColor(0x55FFFFFF);
-        r.set(36, 234, 196, 238);
-        c.drawRoundRect(r, 2, 2, p);
-        p.setColor(0xFF7CFF8A);
-        r.set(36, 234, 36 + 160 * audio.readCount() / 1189f, 238);
-        c.drawRoundRect(r, 2, 2, p);
-        int n = audio.fileCount();
-        text(c, n > 0 ? "Dublagem: " + n + " capítulos reconhecidos" : "Dublagem: nenhuma (importe em ▦ Opções)", PW / 2f, 254, 9f,
-                n > 0 ? 0xFF7CFF8A : 0xFFFFB066, Paint.Align.CENTER, true);
-        button(c, 24, 270, 208, 304, "CONTINUAR", 0xFFFFD27A, 13);
-        button(c, 24, 310, 208, 344, "LIVROS", 0xFF9FE8FF, 13);
     }
 
     private void drawSmallMedal(Canvas c, float cx, float cy, boolean has, boolean rainbow) {
@@ -538,6 +526,10 @@ final class BiblePanel extends View {
             float y = TT + i * ROW - listScroll;
             if (y + ROW < TT || y > TB) continue;
             int[] row = rows.get(i);
+            if (row[0] == 2) {
+                text(c, audio.readCount() + " / 1189 lidos · dublagem: " + audio.fileCount(), PW / 2f, y + 19, 9.2f, 0xFF7CFF8A, Paint.Align.CENTER, true);
+                continue;
+            }
             if (row[0] == 0) {
                 text(c, row[1] == 0 ? "VELHO TESTAMENTO" : "NOVO TESTAMENTO", PW / 2f, y + 19, 11, 0xFFFFD27A, Paint.Align.CENTER, true);
                 continue;
@@ -620,8 +612,10 @@ final class BiblePanel extends View {
         // botões: anterior, tocar/pausar, parar, próximo, letra menor, letra maior, seguir texto
         String[] lab = {"\u25C0", audio.isPlaying() ? "\u275A\u275A" : "\u25B6", "\u25A0", "\u25B6\u25B6", "A\u2212", "A+", follow ? "\u2316" : "\u2013"};
         int[] col = {0xFF9FE8FF, 0xFF7CFF8A, 0xFFFF8A8A, 0xFF9FE8FF, 0xFFFFD27A, 0xFFFFD27A, follow ? 0xFF7CFF8A : 0xFF888888};
+        String[] icn = {"anterior", audio.isPlaying() ? "pause" : "play", "stop", "proximo", "fonte_menos", "fonte_mais", null};
         for (int i = 0; i < 7; i++) {
             float x = TL + i * 29.2f;
+            if (icn[i] != null && Icons.draw(c, ctx, icn[i], x + 13, 336, 13.5f, false)) continue;
             button(c, x, 322, x + 26, 350, lab[i], col[i], i == 3 ? 9 : 12);
         }
     }
@@ -772,8 +766,7 @@ final class BiblePanel extends View {
         if (Math.hypot(x - 176, y - by) < 15) return A_BIG;
         if (screen != COVER && Math.hypot(x - 24, y - 24) < 15) return A_BACK;
         if (screen == COVER) {
-            if (y >= 270 && y <= 304 && x >= 24 && x <= 208) return A_CONT;
-            if (y >= 310 && y <= 344 && x >= 24 && x <= 208) return A_BOOKS;
+            return A_BOOKS;                                    // capa limpa: tocar abre os livros, segurar continua a leitura
         } else if (screen == READER) {
             if (y >= 322 && y <= 350 && x >= TL && x < TL + 7 * 29.2f) {
                 int i = (int) ((x - TL) / 29.2f);
@@ -889,7 +882,8 @@ final class BiblePanel extends View {
                 return true;
             case MotionEvent.ACTION_UP:
                 if (!moved) {
-                    if (mode == 1 && hit(x, y) == hitAction) act(hitAction, x);
+                    if (mode == 1 && hitAction == A_BOOKS && screen == COVER && e.getEventTime() - e.getDownTime() > 550) act(A_CONT, x);
+                    else if (mode == 1 && hit(x, y) == hitAction) act(hitAction, x);
                     else if (mode == 2) tapContent(x, y);
                 }
                 if (screen == READER && textScroll >= maxText() - 2 && layout != null && !closing) {

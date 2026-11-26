@@ -182,3 +182,10 @@ Tudo que ele mandou está em `referencias/` (gifs, folhas de sprites, os 2 model
 ## Atualização 14 (versionCode 19)
 - Bug da espada (vídeo 25/11): ao abrir/fechar o painel a espada (Bob da noite) aparecia deslocada por 1-2 quadros (pulava para cima/esquerda). Causa: a janela muda de tamanho/lugar um instante depois do pedido e o desenho usava o lugar "pedido" (winX/winY). Correção: desenhar pelo lugar real da janela (getLocationOnScreen -> drawOX/drawOY) em onDraw/drawBob.
 - Capa da Bíblia: sem o título "BÍBLIA" e sem "Edição por Gilberto"; a arte preenche o painel inteiro (sem moldura de madeira); botões ⤢ e ✕ sobem no topo; medalhas nos pomos das espadas.
+
+## Atualização 15 (versionCode 20) — ícones do Gilberto, capa limpa, cobre, espada
+- 34 botões desenhados pelo Gilberto cortados da folha (assets/ic/NN_nome.png, ordem do Guia v2) + Icons.java. Aplicados: 6 botões do painel (foto, apagar, ram, max, parar, gelo), gaveta, TV LISTA, BÍBLIA, CLICKER, botões do painel da Bíblia (voltar, expandir/minimizar, fechar, anterior, play/pause, stop, próximo, A−, A+). FALTA aplicar: leitor de PDF (BookActivity/BookView), TV (TvView), transporte da música e botão de opções ▦ do painel, dial 22 nos knobs VOL/BRI, confirmar/cancelar/menu/estante/alerta/paginas (30)/opcoes(31).
+- Ícone do app: TV CRT cinza do Gilberto (mipmaps e assets/tv_icon.png). Gaveteiro (menu de Opções) ainda NÃO aplicado como fundo.
+- Opções: interruptores e botões em cobre texturizado com pingo escorrendo (copper_*.png), sem o verde-água.
+- Capa da Bíblia limpa: só a arte + medalhas; tocar abre os livros, segurar continua a leitura; progresso/dublagem foram para o topo da lista de livros.
+- Espada deslizando: causa provável = animação de janela do Samsung ao mudar de tamanho. Agora: windowAnimations sem animação (NoWindowAnim) e, quando o tamanho muda (abrir/fechar painel), a janela é removida e recolocada já no tamanho final (pode piscar 1 quadro). Se ainda deslizar, plano B: painel em janela separada do Bob.

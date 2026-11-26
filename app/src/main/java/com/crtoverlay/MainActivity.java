@@ -396,6 +396,7 @@ public class MainActivity extends Activity {
     // ---------- ▦ opções de ligar e desligar ----------
     private Switch switchRow(String label, boolean checked, CompoundButton.OnCheckedChangeListener listener) {
         Switch s = new Switch(this);
+        copperSwitch(s);
         s.setText(label);
         s.setTextSize(16);
         int pad = Math.round(8 * dens);
@@ -410,7 +411,39 @@ public class MainActivity extends Activity {
         b.setAllCaps(false);
         b.setText(text);
         b.setOnClickListener(l);
+        copperButton(b);
         return b;
+    }
+
+    private android.graphics.drawable.Drawable assetDrawable(String name) {
+        try (java.io.InputStream in = getAssets().open(name)) {
+            return new android.graphics.drawable.BitmapDrawable(getResources(), android.graphics.BitmapFactory.decodeStream(in));
+        } catch (java.io.IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** Troca o verde-água dos interruptores por cobre com um pingo escorrendo. */
+    private void copperSwitch(Switch s) {
+        android.graphics.drawable.Drawable thumb = assetDrawable("copper_thumb.png");
+        android.graphics.drawable.Drawable on = assetDrawable("copper_track_on.png"), off = assetDrawable("copper_track_off.png");
+        if (thumb == null || on == null || off == null) return;
+        android.graphics.drawable.StateListDrawable track = new android.graphics.drawable.StateListDrawable();
+        track.addState(new int[]{android.R.attr.state_checked}, on);
+        track.addState(new int[]{}, off);
+        s.setThumbDrawable(thumb);
+        s.setTrackDrawable(track);
+        s.setSwitchMinWidth(Math.round(54 * dens));
+    }
+
+    /** Botões das opções em cobre texturizado com pingos. */
+    private void copperButton(Button b) {
+        android.graphics.drawable.Drawable bg = assetDrawable("copper_btn.png");
+        if (bg == null) return;
+        b.setBackground(bg);
+        b.setTextColor(0xFFFFF3E0);
+        b.setShadowLayer(3f, 0f, 1.5f, 0xFF3A1A08);
+        b.setPadding(Math.round(12 * dens), Math.round(10 * dens), Math.round(12 * dens), Math.round(18 * dens));
     }
 
     private void showOptions() {

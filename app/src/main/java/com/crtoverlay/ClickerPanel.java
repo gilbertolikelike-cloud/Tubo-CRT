@@ -82,6 +82,7 @@ final class ClickerPanel extends View {
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
                         | WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
+        lp.windowAnimations = R.style.NoWindowAnim;
         lp.gravity = Gravity.TOP | Gravity.START;
     }
 

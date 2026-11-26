@@ -373,6 +373,7 @@ public class BobPanel extends View implements Familiar.Host {
                         | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL | WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.TRANSLUCENT);
+        lp.windowAnimations = R.style.NoWindowAnim;
         lp.gravity = Gravity.TOP | Gravity.START;
         winX = bobX;
         winY = bobY;
@@ -535,9 +536,23 @@ public class BobPanel extends View implements Familiar.Host {
         lp.x = Math.round(winX);
         lp.y = Math.round(winY);
         if (added) {
-            try { wm.updateViewLayout(this, lp); } catch (RuntimeException ignored) { /* janela removida */ }
+            boolean sizeChanged = lastW != lp.width || lastH != lp.height;
+            lastW = lp.width;
+            lastH = lp.height;
+            try {
+                if (sizeChanged && isAttachedToWindow()) {
+                    // Mudou o tamanho (abrir/fechar painel): o Samsung animava a janela e a espada "deslizava".
+                    // Tirar e pôr de novo já na medida final não anima nada.
+                    wm.removeViewImmediate(this);
+                    wm.addView(this, lp);
+                } else {
+                    wm.updateViewLayout(this, lp);
+                }
+            } catch (RuntimeException ignored) { /* janela removida */ }
         }
     }
+
+    private int lastW = -1, lastH = -1;
 
     // ---------- abrir e fechar com animação ----------
     private void setOpen(boolean want, boolean animated) {
@@ -1353,6 +1368,10 @@ public class BobPanel extends View implements Familiar.Host {
     /** Botão grande da faixa (gaveta e TV LISTA). */
     private void drawBigButton(Canvas c, float cx, float cy, int ring, String label, int kind) {
         float ringR = 13 * d, capR = 10.5f * d;
+        if (Icons.draw(c, ctx, BIG_ICONS[Math.max(0, Math.min(3, kind))], cx, cy, ringR, false)) {
+            drawIridescent(c, label, cx, cy + ringR + 10 * d, 8.5f * d);
+            return;
+        }
         c.save();
         c.translate(cx, cy);
         p.setShader(null);
@@ -1522,12 +1541,19 @@ public class BobPanel extends View implements Familiar.Host {
         c.drawLine(cx, cy - 3 * d, cx + 5 * d, cy + 2 * d, p);
     }
 
+    private static final String[] ICON_NAMES = {"foto", "apagar", "ram", "max", "parar", "gelo"};
+    private static final String[] BIG_ICONS = {"gaveta", "tvlista", "biblia", "clicker"};
+
     private void drawButton(Canvas c, int i) {
         float cx = buttonX(i), cy = buttonY(i);
         boolean on = (i == 3 && sp.getBoolean("perf_on", false)) || (i == 5 && sp.getBoolean("cool_on", false));
         int ring = (i == 3 || i == 5) && !on ? 0xFF6A6A6A : BUTTON_RING[i];
         int ink = on ? ring : 0xFFEFE6CC;
         float ringR = BUTTON_R * d, capR = 12 * d;
+        if (Icons.draw(c, ctx, ICON_NAMES[i], cx, cy, ringR, (i == 3 || i == 5) && !on)) {   // desenho do Gilberto
+            drawIridescent(c, BUTTON_LABEL[i], cx, cy + ringR + 11 * d, 8.5f * d);
+            return;
+        }
         c.save();
         c.translate(cx, cy);
         p.setShader(null);
