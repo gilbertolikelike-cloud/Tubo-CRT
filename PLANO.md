@@ -203,3 +203,10 @@ Tudo que ele mandou está em `referencias/` (gifs, folhas de sprites, os 2 model
 - EFEITOS: tela com quadradinhos; tocar num quadrado abre TODAS as configurações daquele efeito; pelo menos 20 efeitos (HDR, bloom, etc. — ver "IDEIAS ANOTADAS").
 - Ainda falta aplicar os desenhos: TV (TvView), disco VOL/BRI (dial), confirmar/cancelar/menu/alerta, botão ▦ do painel; usar o ícone do desenho nos botões de 'Botões da gaveta'.
 - Explicação dos versículos (Claude escreve um capítulo por vez + botão + para o Gilberto escrever a dele) — só quando ele mandar anotar/começar.
+
+## Atualização 17 (versionCode 22)
+- Ícone 35 (lupa com A) cortado da folha nova: assets/ic/35_lupa.png. Usado no botão de zoom do leitor de PDF (1x -> 2x -> 3,5x -> 1x). Também reservado para a futura lupa de tela (MediaProjection).
+- Disco do volume/brilho: o desenho "dial" agora é o corpo dos botões VOL/BRI do painel (antes estava, por engano, no botão "Cor" do leitor). "Cor" do leitor agora usa o ícone "opcoes".
+- Estante de PDFs com abas "Livros (N)" e "Pastas (N)": a aba Pastas navega como a lista da TV (entra na pasta, subpastas, PDFs, botão ◀ Voltar, tecla voltar do celular sobe um nível; "PDFs avulsos" vira uma pasta).
+- Leitor de PDF: zoom com os dedos (pinça, até 5x; render até 2200 px quando o zoom passa de 1,6x), arrastar com 1 dedo move a página ampliada, 2 dedos não viram a página.
+- FALTA: desenhos nos controles da TV (anterior, tocar, próximo, tela cheia, fechar, lista) e lupa de tela.

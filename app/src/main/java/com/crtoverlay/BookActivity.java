@@ -52,6 +52,13 @@ public class BookActivity extends Activity implements BookView.Listener {
     private TextView info;
     private String currentKey = "";
     private Entry current;
+    private TextView tabBooks, tabFolders;
+    private int libTab;                                   // 0 = Livros (todos), 1 = Pastas (navegar como na TV)
+    private String bTree;                                 // pasta aberta na aba Pastas (null = lista das pastas)
+    private final List<String> bStack = new ArrayList<>(); // ids das pastas por onde entrou
+    private final List<String> bNames = new ArrayList<>();
+    private List<Entry> lastAll = new ArrayList<>();
+    private int treeCount;
     private boolean triedCopy;
     private final Handler main = new Handler(Looper.getMainLooper());
 
@@ -121,6 +128,13 @@ public class BookActivity extends Activity implements BookView.Listener {
         row.addView(addFiles, lp);
         row.addView(addTree, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         libraryView.addView(row);
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setOrientation(LinearLayout.HORIZONTAL);
+        tabBooks = tabView("Livros (0)", 0);
+        tabFolders = tabView("Pastas (0)", 1);
+        tabs.addView(tabBooks, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        tabs.addView(tabFolders, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        libraryView.addView(tabs);
         ScrollView sv = new ScrollView(this);
         shelf = new LinearLayout(this);
         shelf.setOrientation(LinearLayout.VERTICAL);
@@ -147,8 +161,218 @@ public class BookActivity extends Activity implements BookView.Listener {
             }
             for (String t : lines("pdf_folders")) collect(Uri.parse(t), t, DocumentsContract.getTreeDocumentId(Uri.parse(t)), all, 0);
             Collections.sort(all, (a, c) -> a.name.toLowerCase(Locale.ROOT).compareTo(c.name.toLowerCase(Locale.ROOT)));
-            main.post(() -> fillShelf(all));
+            main.post(() -> {
+                lastAll = all;
+                treeCount = lines("pdf_folders").size() + (lines("pdf_items").isEmpty() ? 0 : 1);
+                updateTabs();
+                if (libTab == 0) fillShelf(all); else loadFolders();
+            });
         }).start();
+    }
+
+    private TextView tabView(String text, final int which) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextSize(20);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(0, dp(10), 0, dp(10));
+        t.setOnClickListener(v -> {
+            libTab = which;
+            bTree = null;
+            bStack.clear();
+            bNames.clear();
+            updateTabs();
+            if (which == 0) fillShelf(lastAll); else loadFolders();
+        });
+        return t;
+    }
+
+    private void updateTabs() {
+        tabBooks.setText("Livros (" + lastAll.size() + ")");
+        tabFolders.setText("Pastas (" + treeCount + ")");
+        tabBooks.setTextColor(libTab == 0 ? 0xFFFFD27A : 0xFF9A8B70);
+        tabFolders.setTextColor(libTab == 1 ? 0xFFFFD27A : 0xFF9A8B70);
+        tabBooks.setTypeface(null, libTab == 0 ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        tabFolders.setTypeface(null, libTab == 1 ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+    }
+
+    private static final class FRow {
+        String name;
+        boolean folder;
+        String tree, docId;
+        Entry entry;
+        int count;
+    }
+
+    private int childCount(Uri tree, String docId) {
+        try (Cursor c = getContentResolver().query(DocumentsContract.buildChildDocumentsUriUsingTree(tree, docId),
+                new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID}, null, null, null)) {
+            return c == null ? 0 : c.getCount();
+        } catch (RuntimeException e) {
+            return 0;
+        }
+    }
+
+    /** Aba Pastas: lista as pastas adicionadas; tocando entra, e dá para voltar (igual à lista da TV). */
+    private void loadFolders() {
+        final String tree = bTree;
+        final String parent = bStack.isEmpty() ? null : bStack.get(bStack.size() - 1);
+        new Thread(() -> {
+            final List<FRow> rows = new ArrayList<>();
+            if (tree == null) {
+                for (String t : lines("pdf_folders")) {
+                    Uri tu = Uri.parse(t);
+                    String id = DocumentsContract.getTreeDocumentId(tu);
+                    FRow r = new FRow();
+                    r.folder = true;
+                    r.tree = t;
+                    r.docId = id;
+                    r.name = docName(DocumentsContract.buildDocumentUriUsingTree(tu, id), id);
+                    r.count = childCount(tu, id);
+                    rows.add(r);
+                }
+                if (!lines("pdf_items").isEmpty()) {
+                    FRow r = new FRow();
+                    r.folder = true;
+                    r.tree = "__avulsos__";
+                    r.docId = "";
+                    r.name = "PDFs avulsos";
+                    r.count = lines("pdf_items").size();
+                    rows.add(r);
+                }
+            } else if ("__avulsos__".equals(tree)) {
+                for (String u : lines("pdf_items")) {
+                    FRow r = new FRow();
+                    Entry e = new Entry();
+                    e.uri = Uri.parse(u);
+                    e.name = displayName(e.uri);
+                    r.entry = e;
+                    r.name = e.name;
+                    rows.add(r);
+                }
+            } else {
+                Uri tu = Uri.parse(tree);
+                try (Cursor c = getContentResolver().query(DocumentsContract.buildChildDocumentsUriUsingTree(tu, parent),
+                        new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                                DocumentsContract.Document.COLUMN_MIME_TYPE}, null, null, null)) {
+                    while (c != null && c.moveToNext()) {
+                        String id = c.getString(0), name = c.getString(1), mime = c.getString(2);
+                        FRow r = new FRow();
+                        if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
+                            r.folder = true;
+                            r.tree = tree;
+                            r.docId = id;
+                            r.name = name == null ? "pasta" : name;
+                            r.count = childCount(tu, id);
+                            rows.add(r);
+                        } else if ("application/pdf".equals(mime) || (name != null && name.toLowerCase(Locale.ROOT).endsWith(".pdf"))) {
+                            Entry e = new Entry();
+                            e.uri = DocumentsContract.buildDocumentUriUsingTree(tu, id);
+                            e.name = name == null ? "livro" : (name.toLowerCase(Locale.ROOT).endsWith(".pdf") ? name.substring(0, name.length() - 4) : name);
+                            e.tree = tree;
+                            r.entry = e;
+                            r.name = e.name;
+                            rows.add(r);
+                        }
+                    }
+                } catch (RuntimeException ignored) { /* sem permissão */ }
+            }
+            Collections.sort(rows, (a, b) -> a.folder != b.folder ? (a.folder ? -1 : 1) : a.name.toLowerCase(Locale.ROOT).compareTo(b.name.toLowerCase(Locale.ROOT)));
+            main.post(() -> fillFolders(rows));
+        }).start();
+    }
+
+    private String docName(Uri docUri, String fallback) {
+        try (Cursor c = getContentResolver().query(docUri, new String[]{DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null)) {
+            if (c != null && c.moveToFirst() && c.getString(0) != null) return c.getString(0);
+        } catch (RuntimeException ignored) { /* usa o id */ }
+        int i = fallback.lastIndexOf('/');
+        return i >= 0 ? fallback.substring(i + 1) : fallback;
+    }
+
+    private void fillFolders(List<FRow> rows) {
+        shelf.removeAllViews();
+        if (bTree != null) {
+            StringBuilder path = new StringBuilder();
+            for (String n : bNames) path.append(" / ").append(n);
+            shelf.addView(folderRow("◀  Voltar", path.toString().isEmpty() ? "" : path.toString().substring(3), 0xFF5B2A7A, v -> folderBack()));
+        }
+        if (rows.isEmpty()) {
+            TextView t = new TextView(this);
+            t.setText(bTree == null ? "Nenhuma pasta ainda.\nToque em \"+ Adicionar pasta\"." : "Pasta vazia (sem PDFs nem subpastas).");
+            t.setTextSize(20);
+            t.setTextColor(0xFFEFE6CC);
+            t.setPadding(0, dp(20), 0, 0);
+            shelf.addView(t);
+            return;
+        }
+        for (final FRow r : rows) {
+            if (r.folder) {
+                shelf.addView(folderRow("📁  " + r.name, r.count + (r.count == 1 ? " item" : " itens"), 0xFF8E6A12, v -> {
+                    if (bTree == null || "__avulsos__".equals(r.tree)) { bTree = r.tree; }
+                    bStack.add(r.docId);
+                    bNames.add(r.name);
+                    loadFolders();
+                }));
+            } else {
+                shelf.addView(bookRow(r.entry));
+            }
+        }
+    }
+
+    private void folderBack() {
+        if (!bStack.isEmpty()) { bStack.remove(bStack.size() - 1); bNames.remove(bNames.size() - 1); }
+        if (bStack.isEmpty()) bTree = null;
+        loadFolders();
+    }
+
+    private View folderRow(String title, String subtitle, int spineColor, View.OnClickListener l) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(0xFF1F140C);
+        bg.setCornerRadius(dp(10));
+        row.setBackground(bg);
+        View spine = new View(this);
+        GradientDrawable sg = new GradientDrawable();
+        sg.setColor(spineColor);
+        sg.setCornerRadii(new float[]{dp(10), dp(10), 0, 0, 0, 0, dp(10), dp(10)});
+        spine.setBackground(sg);
+        row.addView(spine, new LinearLayout.LayoutParams(dp(20), dp(64)));
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(14), dp(8), dp(10), dp(8));
+        TextView name = new TextView(this);
+        name.setText(title);
+        name.setTextSize(20);
+        name.setTextColor(0xFFFFFFFF);
+        name.setMaxLines(2);
+        name.setTypeface(null, android.graphics.Typeface.BOLD);
+        col.addView(name);
+        if (!subtitle.isEmpty()) {
+            TextView sub = new TextView(this);
+            sub.setText(subtitle);
+            sub.setTextSize(16);
+            sub.setTextColor(0xFFB8A98C);
+            col.addView(sub);
+        }
+        row.addView(col, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.bottomMargin = dp(10);
+        row.setLayoutParams(lp);
+        row.setOnClickListener(l);
+        return row;
+    }
+
+    /** Linha de um livro (usada na aba Pastas). */
+    private View bookRow(final Entry e) {
+        String key = String.valueOf(e.uri.toString().hashCode());
+        int count = sp.getInt("pdf_count_" + key, 0), page = sp.getInt("pdf_page_" + key, -1);
+        View r = folderRow(e.name, count > 0 ? "Página " + Math.max(1, page + 1) + " de " + count : "Toque pra abrir",
+                SPINES[Math.abs(key.hashCode()) % SPINES.length], v -> openBook(e));
+        r.setOnLongClickListener(v -> { confirmRemove(e); return true; });
+        return r;
     }
 
     private void collect(Uri tree, String treeStr, String parentId, List<Entry> out, int depth) {
@@ -333,7 +557,8 @@ public class BookActivity extends Activity implements BookView.Listener {
         bar.addView(ibtn("fonte_menos", "A−", v -> book.zoomBy(0.8f)));
         bar.addView(ibtn("fonte_mais", "A+", v -> book.zoomBy(1.25f)));
         bar.addView(ibtn("paginas", "1⇄2", v -> book.toggleTwo()));
-        bar.addView(ibtn("dial", "Cor", v -> book.cycleTheme()));
+        bar.addView(ibtn("lupa", "Zoom", v -> book.zoomCycle()));
+        bar.addView(ibtn("opcoes", "Cor", v -> book.cycleTheme()));
         bar.addView(ibtn("estante", "Estante", v -> closeBook()));
     }
 
@@ -376,7 +601,9 @@ public class BookActivity extends Activity implements BookView.Listener {
     }
 
     @Override public void onBackPressed() {
-        if (readerView.getVisibility() == View.VISIBLE) closeBook(); else super.onBackPressed();
+        if (readerView.getVisibility() == View.VISIBLE) closeBook();
+        else if (libTab == 1 && bTree != null) folderBack();
+        else super.onBackPressed();
     }
 
     // ---------- BookView.Listener ----------

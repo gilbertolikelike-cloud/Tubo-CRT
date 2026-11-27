@@ -76,8 +76,18 @@ final class BookView extends View {
     private float downX, downY, lastX, lastY;
     private boolean dragged, flipped;
 
+    private android.view.ScaleGestureDetector pinch;
+
     BookView(Context c) {
         super(c);
+        pinch = new android.view.ScaleGestureDetector(c, new android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            @Override public boolean onScale(android.view.ScaleGestureDetector d) {
+                zoom = Math.max(1f, Math.min(5f, zoom * d.getScaleFactor()));    // pinça com os dedos
+                if (zoom <= 1.01f) { zoom = 1f; panX = 0f; panY = 0f; }
+                invalidate();
+                return true;
+            }
+        });
         dens = c.getResources().getDisplayMetrics().density;
         two = c.getResources().getDisplayMetrics().widthPixels > c.getResources().getDisplayMetrics().heightPixels; // paisagem: duas páginas
     }
@@ -167,8 +177,15 @@ final class BookView extends View {
         invalidate();
     }
 
+    /** Botão da lupa: 1x -> 2x -> 3,5x -> volta. */
+    void zoomCycle() {
+        zoom = zoom < 1.3f ? 2f : (zoom < 2.6f ? 3.5f : 1f);
+        if (zoom <= 1.01f) { panX = 0f; panY = 0f; }
+        invalidate();
+    }
+
     void zoomBy(float f) {
-        zoom = Math.max(1f, Math.min(3.2f, zoom * f));
+        zoom = Math.max(1f, Math.min(5f, zoom * f));
         if (zoom <= 1.01f) { zoom = 1f; panX = 0f; panY = 0f; }
         invalidate();
     }
@@ -187,7 +204,7 @@ final class BookView extends View {
 
     // ---------- páginas ----------
     private Bitmap bitmapFor(int page, float rectW) {
-        int need = Math.min(1800, ((int) rectW + 99) / 100 * 100);
+        int need = Math.min(zoom > 1.6f ? 2200 : 1800, ((int) rectW + 99) / 100 * 100);
         needW = need;
         Bitmap b = cache.get(page + "@" + need);
         if (b != null) return b;
@@ -380,6 +397,20 @@ final class BookView extends View {
 
     // ---------- toques ----------
     @Override public boolean onTouchEvent(MotionEvent e) {
+        pinch.onTouchEvent(e);
+        if (pinch.isInProgress() || e.getPointerCount() > 1) {   // dois dedos: só dá zoom (não vira a página nem abre a barra)
+            dragged = true;
+            flipped = true;
+            lastX = e.getX();
+            lastY = e.getY();
+            return true;
+        }
+        if (e.getActionMasked() == MotionEvent.ACTION_POINTER_UP) {
+            int idx = e.getActionIndex() == 0 ? 1 : 0;
+            lastX = e.getX(idx);
+            lastY = e.getY(idx);
+            return true;
+        }
         switch (e.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 downX = lastX = e.getX();

@@ -1343,8 +1343,11 @@ public class BobPanel extends View implements Familiar.Host {
         float ringR = 32 * d, arcR = 34.5f * d, capR = 20 * d, theta = 135f - 270f * v;
         c.save();
         c.translate(cx, cy);
-        dst.set(-ringR, -ringR, ringR, ringR);
-        c.drawBitmap(dialRing, null, dst, uiPaint); // aro preto com as marcas
+        final boolean dialIcon = Icons.draw(c, ctx, "dial", 0, 0, ringR + 2 * d, false);   // desenho do Gilberto
+        if (!dialIcon) {
+            dst.set(-ringR, -ringR, ringR, ringR);
+            c.drawBitmap(dialRing, null, dst, uiPaint); // aro preto com as marcas
+        }
         r.set(-arcR, -arcR, arcR, arcR);
         p.setShader(null);
         p.setStyle(Paint.Style.STROKE);
@@ -1355,11 +1358,13 @@ public class BobPanel extends View implements Familiar.Host {
         p.setColor(color);
         if (v > 0.001f) c.drawArc(r, 45f - 270f * v, 270f * v, false, p);
         c.rotate(theta); // a tampa serrilhada gira junto com o ponteiro
-        dst.set(-capR, -capR, capR, capR);
-        c.drawBitmap(capBig, null, dst, uiPaint);
+        if (!dialIcon) {
+            dst.set(-capR, -capR, capR, capR);
+            c.drawBitmap(capBig, null, dst, uiPaint);
+        }
         p.setStrokeWidth(3.2f * d);
         p.setColor(color);
-        c.drawLine(0, -capR * 0.20f, 0, -capR * 0.90f, p);
+        c.drawLine(0, dialIcon ? 0f : -capR * 0.20f, 0, dialIcon ? -capR * 1.25f : -capR * 0.90f, p);   // ponteiro
         c.restore();
         // nome embaixo do botão
         drawIridescent(c, label + " " + Math.round(v * 100) + "%", cx, cy + 47 * d, 11 * d); // espaço de sobra entre o botão e o nome
