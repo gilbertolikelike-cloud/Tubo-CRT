@@ -189,3 +189,17 @@ Tudo que ele mandou está em `referencias/` (gifs, folhas de sprites, os 2 model
 - Opções: interruptores e botões em cobre texturizado com pingo escorrendo (copper_*.png), sem o verde-água.
 - Capa da Bíblia limpa: só a arte + medalhas; tocar abre os livros, segurar continua a leitura; progresso/dublagem foram para o topo da lista de livros.
 - Espada deslizando: causa provável = animação de janela do Samsung ao mudar de tamanho. Agora: windowAnimations sem animação (NoWindowAnim) e, quando o tamanho muda (abrir/fechar painel), a janela é removida e recolocada já no tamanho final (pode piscar 1 quadro). Se ainda deslizar, plano B: painel em janela separada do Bob.
+
+## Atualização 16 (versionCode 21)
+- Leitor de PDF mais rápido: fila de prioridade no PdfRenderer (1 thread): páginas visíveis primeiro, versão rápida de 500 px aparece quase na hora e depois a nítida (limite 1800 px); vizinhas depois. Barra do leitor com os desenhos (anterior, próximo, A−, A+, 1⇄2 = paginas, Cor = dial, Estante).
+- Música do painel (anterior, tocar/pausar, próxima) com os desenhos do Gilberto.
+- Opções organizadas em 5 GAVETAS (arte do gaveteiro cortada em assets/drawer_1..5.png): Tela e CRT; Painel, Bob e espada; Bíblia; Livros, vídeo e música; Sistema e extras. Visual cobre/pingo removido (voltou o antigo). Botão "◀ Gavetas" volta ao gaveteiro.
+- Cores: citações entre aspas “...” ficam na cor de quem falou (Elohim/Yahuah/Yahusha/profetas/discípulos), inclusive "E disse também:". Paleta de 68 cores (12 matizes x 5 tons + 8 cinzas) para escolher a cor de cada fala.
+- Registro de mudanças (logs) dentro do app: Opções > Sistema e extras > "Registro de mudanças (logs) e versão" (lê assets/logs.txt = cópia do PLANO.md; REGERAR a cada versão).
+
+## PLANOS DO GILBERTO PARA O FUTURO (anotado a pedido dele, NÃO FEITO)
+- Quando tudo estiver 100%: apagar o GitHub atual e criar outro com o app organizado; por isso o app precisa ter os logs dentro (feito).
+- Lançamento público: REMOVER todos os GIFs com direitos autorais (Pingu, Ned Flanders, Shaggy/Carl, etc.) e REMOVER as músicas embutidas; o usuário escolhe o próprio GIF (GIF Studio) e a própria música.
+- EFEITOS: tela com quadradinhos; tocar num quadrado abre TODAS as configurações daquele efeito; pelo menos 20 efeitos (HDR, bloom, etc. — ver "IDEIAS ANOTADAS").
+- Ainda falta aplicar os desenhos: TV (TvView), disco VOL/BRI (dial), confirmar/cancelar/menu/alerta, botão ▦ do painel; usar o ícone do desenho nos botões de 'Botões da gaveta'.
+- Explicação dos versículos (Claude escreve um capítulo por vez + botão + para o Gilberto escrever a dele) — só quando ele mandar anotar/começar.

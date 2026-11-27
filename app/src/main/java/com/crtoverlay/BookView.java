@@ -32,7 +32,24 @@ final class BookView extends View {
 
     private final float dens;
     private final Handler main = new Handler(Looper.getMainLooper());
-    private final ExecutorService exec = Executors.newSingleThreadExecutor(); // o PdfRenderer só aceita uma thread por vez
+    // O PdfRenderer só aceita uma página por vez, então 1 thread; mas agora com FILA DE PRIORIDADE:
+    // primeiro as páginas que aparecem na tela (versão rápida e baixa), depois a nítida, depois as vizinhas.
+    private final java.util.concurrent.ThreadPoolExecutor exec = new java.util.concurrent.ThreadPoolExecutor(1, 1, 0L,
+            java.util.concurrent.TimeUnit.MILLISECONDS, new java.util.concurrent.PriorityBlockingQueue<Runnable>());
+    private static final java.util.concurrent.atomic.AtomicLong SEQ = new java.util.concurrent.atomic.AtomicLong();
+
+    private static final class PTask implements Runnable, Comparable<PTask> {
+        final int prio;
+        final long seq = SEQ.getAndIncrement();
+        final Runnable r;
+        PTask(int prio, Runnable r) { this.prio = prio; this.r = r; }
+        @Override public void run() { r.run(); }
+        @Override public int compareTo(PTask o) { return prio != o.prio ? Integer.compare(prio, o.prio) : Long.compare(seq, o.seq); }
+    }
+
+    private void run(int prio, Runnable r) {
+        try { exec.execute(new PTask(prio, r)); } catch (RuntimeException ignored) { /* fechado */ }
+    }
     private final LruCache<String, Bitmap> cache = new LruCache<String, Bitmap>(56 * 1024 * 1024) {
         @Override protected int sizeOf(String key, Bitmap b) { return b.getByteCount(); }
     };
@@ -68,7 +85,7 @@ final class BookView extends View {
     void open(final ParcelFileDescriptor file, final int startLeft, Listener l) {
         listener = l;
         left = startLeft;
-        exec.execute(() -> {
+        run(-5, () -> {
             try {
                 PdfRenderer r = new PdfRenderer(file);
                 int n = r.getPageCount();
@@ -93,7 +110,7 @@ final class BookView extends View {
     }
 
     void close() {
-        exec.execute(() -> {
+        run(1000, () -> {
             try {
                 if (renderer != null) renderer.close();
                 if (pfd != null) pfd.close();
@@ -170,12 +187,13 @@ final class BookView extends View {
 
     // ---------- páginas ----------
     private Bitmap bitmapFor(int page, float rectW) {
-        int need = Math.min(2200, ((int) rectW + 99) / 100 * 100);
+        int need = Math.min(1800, ((int) rectW + 99) / 100 * 100);
         needW = need;
         Bitmap b = cache.get(page + "@" + need);
         if (b != null) return b;
-        request(page, need);
-        Integer best = bestWidth.get(page); // enquanto a nova não chega, mostra a que já tinha
+        Integer best = bestWidth.get(page); // enquanto a nítida não chega, mostra a que já tinha
+        if (best == null) request(page, 500); // 1º uma versão rápida (aparece quase na hora)
+        if (need > 500) request(page, need);
         return best != null ? cache.get(page + "@" + best) : null;
     }
 
@@ -183,7 +201,8 @@ final class BookView extends View {
         final String key = page + "@" + width;
         if (renderer == null && !opened) return;
         if (!pending.add(key)) return;
-        exec.execute(() -> {
+        final boolean visible = page >= left && page <= left + 1;
+        run((visible ? 0 : 4) + (width <= 500 ? 0 : 1), () -> {
             Bitmap bm = null;
             try {
                 PdfRenderer.Page pg = renderer.openPage(page);
@@ -212,7 +231,11 @@ final class BookView extends View {
     }
 
     private void prefetch() {
-        for (int pg = left - 2; pg <= left + 4; pg++) if (pg >= 0 && pg < pageCount) request(pg, needW);
+        int w = Math.max(needW, 900);
+        for (int pg = left; pg <= left + 5; pg++) if (pg >= 0 && pg < pageCount) request(pg, 500);
+        if (left - 1 >= 0) request(left - 1, 500);
+        for (int pg = left; pg <= left + 3; pg++) if (pg >= 0 && pg < pageCount) request(pg, w);
+        if (left - 1 >= 0) request(left - 1, w);
     }
 
     private int paperColor() { return theme == 0 ? 0xFFFFFFFF : theme == 1 ? 0xFFF2E4C4 : 0xFF111111; }

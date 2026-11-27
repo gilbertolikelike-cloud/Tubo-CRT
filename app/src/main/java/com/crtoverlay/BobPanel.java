@@ -1642,6 +1642,7 @@ public class BobPanel extends View implements Familiar.Host {
         boolean playing = music.playing();
         for (int i = 0; i < 3; i++) {
             float ringR = TRANSPORT_R * d, capR = 13 * d;
+            if (Icons.draw(c, ctx, i == 1 ? (playing ? "pause" : "play") : (i == 0 ? "anterior" : "proximo"), transportX(i), transportY(), ringR + 1.5f * d, false)) continue;
             c.save();
             c.translate(transportX(i), transportY());
             p.setStyle(Paint.Style.FILL);

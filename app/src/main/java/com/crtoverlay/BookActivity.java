@@ -301,13 +301,27 @@ public class BookActivity extends Activity implements BookView.Listener {
         }
     }
 
+    /** Botão com o desenho do Gilberto (grande, para enxergar bem); sem o desenho volta o botão de texto. */
+    private View ibtn(String icon, String fallback, View.OnClickListener l) {
+        android.graphics.Bitmap bm = Icons.get(this, icon);
+        if (bm == null) return btn(fallback, l);
+        android.widget.ImageButton ib = new android.widget.ImageButton(this);
+        ib.setBackground(null);
+        ib.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+        ib.setImageBitmap(bm);
+        ib.setPadding(dp(2), dp(2), dp(2), dp(2));
+        ib.setOnClickListener(l);
+        ib.setLayoutParams(new LinearLayout.LayoutParams(dp(56), dp(56)));
+        return ib;
+    }
+
     private void buildBar() {
         bar = new LinearLayout(this);
         bar.setOrientation(LinearLayout.HORIZONTAL);
         bar.setGravity(Gravity.CENTER_VERTICAL);
         bar.setBackgroundColor(0xFF1A0F08);
         bar.setPadding(dp(8), dp(6), dp(8), dp(6));
-        bar.addView(btn("◀", v -> book.prev()));
+        bar.addView(ibtn("anterior", "◀", v -> book.prev()));
         info = new TextView(this);
         info.setTextSize(17);
         info.setTextColor(0xFFFFFFFF);
@@ -315,12 +329,12 @@ public class BookActivity extends Activity implements BookView.Listener {
         info.setTypeface(null, android.graphics.Typeface.BOLD);
         info.setOnClickListener(v -> askPage());
         bar.addView(info, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
-        bar.addView(btn("▶", v -> book.next()));
-        bar.addView(btn("A−", v -> book.zoomBy(0.8f)));
-        bar.addView(btn("A+", v -> book.zoomBy(1.25f)));
-        bar.addView(btn("1⇄2", v -> book.toggleTwo()));
-        bar.addView(btn("Cor", v -> book.cycleTheme()));
-        bar.addView(btn("Estante", v -> closeBook()));
+        bar.addView(ibtn("proximo", "▶", v -> book.next()));
+        bar.addView(ibtn("fonte_menos", "A−", v -> book.zoomBy(0.8f)));
+        bar.addView(ibtn("fonte_mais", "A+", v -> book.zoomBy(1.25f)));
+        bar.addView(ibtn("paginas", "1⇄2", v -> book.toggleTwo()));
+        bar.addView(ibtn("dial", "Cor", v -> book.cycleTheme()));
+        bar.addView(ibtn("estante", "Estante", v -> closeBook()));
     }
 
     private void askPage() {

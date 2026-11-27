@@ -396,7 +396,6 @@ public class MainActivity extends Activity {
     // ---------- ▦ opções de ligar e desligar ----------
     private Switch switchRow(String label, boolean checked, CompoundButton.OnCheckedChangeListener listener) {
         Switch s = new Switch(this);
-        copperSwitch(s);
         s.setText(label);
         s.setTextSize(16);
         int pad = Math.round(8 * dens);
@@ -411,7 +410,6 @@ public class MainActivity extends Activity {
         b.setAllCaps(false);
         b.setText(text);
         b.setOnClickListener(l);
-        copperButton(b);
         return b;
     }
 
@@ -446,18 +444,88 @@ public class MainActivity extends Activity {
         b.setPadding(Math.round(12 * dens), Math.round(10 * dens), Math.round(12 * dens), Math.round(18 * dens));
     }
 
-    private void showOptions() {
+    private void showOptions() { showOptions(-1); }
+
+    private static final String[] DRAWER_NAMES = {"Tela e CRT", "Painel, Bob e espada", "Bíblia", "Livros, vídeo e música", "Sistema e extras"};
+
+    private void put(LinearLayout box, int cat, int mine, View v) { if (cat == mine) box.addView(v); }
+
+    /** Tela das gavetas: cada gaveta do gaveteiro abre um grupo de opções. */
+    private void showDrawers() {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setGravity(Gravity.CENTER_HORIZONTAL);
+        int pad = Math.round(12 * dens);
+        col.setPadding(pad, pad / 2, pad, pad / 2);
+        final AlertDialog[] dlg = new AlertDialog[1];
+        for (int i = 0; i < 5; i++) {
+            final int idx = i;
+            FrameLayout fl = new FrameLayout(this);
+            ImageView iv = new ImageView(this);
+            iv.setAdjustViewBounds(true);
+            try (java.io.InputStream in = getAssets().open("drawer_" + (i + 1) + ".png")) {
+                iv.setImageBitmap(android.graphics.BitmapFactory.decodeStream(in));
+            } catch (java.io.IOException | RuntimeException ignored) { /* sem arte: só o texto */ }
+            fl.addView(iv, new FrameLayout.LayoutParams(-1, -2));
+            TextView tv = new TextView(this);
+            tv.setText(DRAWER_NAMES[i]);
+            tv.setTextSize(19);
+            tv.setTypeface(null, android.graphics.Typeface.BOLD);
+            tv.setTextColor(0xFFFFFFFF);
+            tv.setShadowLayer(6f, 0f, 2f, 0xFF000000);
+            tv.setGravity(Gravity.CENTER);
+            fl.addView(tv, new FrameLayout.LayoutParams(-1, -1));
+            fl.setOnClickListener(v -> { if (dlg[0] != null) dlg[0].dismiss(); showOptions(idx); });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+            lp.setMargins(0, 0, 0, Math.round(2 * dens));
+            col.addView(fl, lp);
+        }
+        ScrollView sv = new ScrollView(this);
+        sv.addView(col);
+        dlg[0] = new AlertDialog.Builder(this).setTitle("Opções").setView(sv)
+                .setPositiveButton("Fechar", null).setOnDismissListener(d -> refresh()).create();
+        dlg[0].show();
+    }
+
+    private void showLogs() {
+        StringBuilder sb = new StringBuilder();
+        try {
+            android.content.pm.PackageInfo pi = getPackageManager().getPackageInfo(getPackageName(), 0);
+            sb.append("Versão ").append(pi.versionName).append(" (código ").append(pi.versionCode).append(")\n\n");
+        } catch (Exception ignored) { /* sem versão */ }
+        try (java.io.InputStream in = getAssets().open("logs.txt")) {
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) bo.write(buf, 0, n);
+            sb.append(bo.toString("UTF-8"));
+        } catch (java.io.IOException e) {
+            sb.append("Registro não encontrado.");
+        }
+        TextView tv = new TextView(this);
+        tv.setText(sb.toString());
+        tv.setTextSize(14);
+        tv.setTextIsSelectable(true);
+        int pad = Math.round(14 * dens);
+        tv.setPadding(pad, pad, pad, pad);
+        ScrollView sv = new ScrollView(this);
+        sv.addView(tv);
+        new AlertDialog.Builder(this).setTitle("Registro de mudanças").setView(sv).setPositiveButton("Fechar", null).show();
+    }
+
+    private void showOptions(int cat) {
+        if (cat < 0) { showDrawers(); return; }
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         int pad = Math.round(16 * dens);
         box.setPadding(pad, pad / 2, pad, pad / 2);
 
-        box.addView(switchRow("CRT ligado", OverlayService.running, (b, on) -> {
+        put(box, cat, 0, switchRow("CRT ligado", OverlayService.running, (b, on) -> {
             if (on == OverlayService.running) return;
             if (on) { if (!startFilter()) b.setChecked(false); }
             else stopService(new Intent(this, OverlayService.class));
         }));
-        box.addView(switchRow("Música do app (só aqui dentro)", sp.getBoolean("music_on", true), (b, on) -> {
+        put(box, cat, 3, switchRow("Música do app (só aqui dentro)", sp.getBoolean("music_on", true), (b, on) -> {
             sp.edit().putBoolean("music_on", on).apply();
             if (on) {
                 startMusic();
@@ -466,60 +534,62 @@ public class MainActivity extends Activity {
                 if (appTv != null) appTv.setPlaying(false);
             }
         }));
-        box.addView(switchRow("Bob e painel por cima de tudo", sp.getBoolean("panel_on", true),
+        put(box, cat, 1, switchRow("Bob e painel por cima de tudo", sp.getBoolean("panel_on", true),
                 (b, on) -> sp.edit().putBoolean("panel_on", on).apply()));
-        box.addView(switchRow("Modo desempenho (tela e CPU acordadas)", sp.getBoolean("perf_on", false), (b, on) -> {
+        put(box, cat, 0, switchRow("Modo desempenho (tela e CPU acordadas)", sp.getBoolean("perf_on", false), (b, on) -> {
             SharedPreferences.Editor ed = sp.edit().putBoolean("perf_on", on);
             if (on) ed.putBoolean("cool_on", false); // desempenho e gelado não ficam ligados juntos
             ed.apply();
         }));
-        box.addView(switchRow("Modo gelado (animações paradas, brilho baixo)", sp.getBoolean("cool_on", false), (b, on) -> {
+        put(box, cat, 0, switchRow("Modo gelado (animações paradas, brilho baixo)", sp.getBoolean("cool_on", false), (b, on) -> {
             SharedPreferences.Editor ed = sp.edit().putBoolean("cool_on", on);
             if (on) ed.putBoolean("perf_on", false);
             ed.apply();
         }));
-        box.addView(dialogButton("Biblioteca de livros (PDF)", v -> startActivity(new Intent(this, BookActivity.class))));
-        box.addView(dialogButton("Dublagem da Bíblia (importar ZIP ou pasta)", v -> showVoiceDialog()));
-        box.addView(dialogButton("Cores das falas dos versículos", v -> showSpeechColors()));
-        box.addView(switchRow("Colorir os nomes (Elohim, Yahuah, Yahusha, profetas, discípulos)", sp.getBoolean("col_names", true), (b, on) -> sp.edit().putBoolean("col_names", on).apply()));
-        box.addView(switchRow("Colorir as falas de outras pessoas", sp.getBoolean("col_other_on", true), (b, on) -> sp.edit().putBoolean("col_other_on", on).apply()));
-        box.addView(dialogButton("Botões da gaveta (você escolhe)", v -> showDrawerDialog()));
-        box.addView(dialogButton("TV de vídeo (playlists por pasta)", v -> showTvDialog()));
-        box.addView(switchRow("Analisador de espectro (pede permissão de áudio)", sp.getBoolean("spectrum_on", true), (b, on) -> {
+        put(box, cat, 3, dialogButton("Biblioteca de livros (PDF)", v -> startActivity(new Intent(this, BookActivity.class))));
+        put(box, cat, 2, dialogButton("Dublagem da Bíblia (importar ZIP ou pasta)", v -> showVoiceDialog()));
+        put(box, cat, 2, dialogButton("Cores das falas dos versículos", v -> showSpeechColors()));
+        put(box, cat, 2, switchRow("Colorir os nomes (Elohim, Yahuah, Yahusha, profetas, discípulos)", sp.getBoolean("col_names", true), (b, on) -> sp.edit().putBoolean("col_names", on).apply()));
+        put(box, cat, 2, switchRow("Colorir as falas de outras pessoas", sp.getBoolean("col_other_on", true), (b, on) -> sp.edit().putBoolean("col_other_on", on).apply()));
+        put(box, cat, 1, dialogButton("Botões da gaveta (você escolhe)", v -> showDrawerDialog()));
+        put(box, cat, 3, dialogButton("TV de vídeo (playlists por pasta)", v -> showTvDialog()));
+        put(box, cat, 1, switchRow("Analisador de espectro (pede permissão de áudio)", sp.getBoolean("spectrum_on", true), (b, on) -> {
             sp.edit().putBoolean("spectrum_on", on).apply();
             if (on && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED)
                 requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
             else MusicPlayer.get(this).refreshVisualizer();
         }));
-        box.addView(switchRow("Sons do painel (TV de tubo)", sp.getBoolean("ui_sounds", true), (b, on) -> sp.edit().putBoolean("ui_sounds", on).apply()));
-        box.addView(switchRow("Ler um capítulo da Bíblia sozinho com a dublagem (também a cada 50 patos)", sp.getBoolean("bible_auto", true), (b, on) -> sp.edit().putBoolean("bible_auto", on).apply()));
-        box.addView(slider("Intervalo base (30 = 30 min, depois 1 h, 1 h 30 e 2 h)", "bible_every", 5, 60, 30, " min"));
-        box.addView(switchRow("Painel fecha sozinho depois de 10 s (desligado = fica aberto)", sp.getBoolean("panel_autoclose", false), (b, on) -> sp.edit().putBoolean("panel_autoclose", on).apply()));
-        box.addView(switchRow("Espada solta depois de 2 min parado", sp.getBoolean("familiar_on", true), (b, on) -> sp.edit().putBoolean("familiar_on", on).apply()));
-        box.addView(switchRow("Brilho nunca automático", sp.getBoolean("no_auto_bright", true), (b, on) -> {
+        put(box, cat, 1, switchRow("Sons do painel (TV de tubo)", sp.getBoolean("ui_sounds", true), (b, on) -> sp.edit().putBoolean("ui_sounds", on).apply()));
+        put(box, cat, 2, switchRow("Ler um capítulo da Bíblia sozinho com a dublagem (também a cada 50 patos)", sp.getBoolean("bible_auto", true), (b, on) -> sp.edit().putBoolean("bible_auto", on).apply()));
+        put(box, cat, 2, slider("Intervalo base (30 = 30 min, depois 1 h, 1 h 30 e 2 h)", "bible_every", 5, 60, 30, " min"));
+        put(box, cat, 1, switchRow("Painel fecha sozinho depois de 10 s (desligado = fica aberto)", sp.getBoolean("panel_autoclose", false), (b, on) -> sp.edit().putBoolean("panel_autoclose", on).apply()));
+        put(box, cat, 1, switchRow("Espada solta depois de 2 min parado", sp.getBoolean("familiar_on", true), (b, on) -> sp.edit().putBoolean("familiar_on", on).apply()));
+        put(box, cat, 0, switchRow("Brilho nunca automático", sp.getBoolean("no_auto_bright", true), (b, on) -> {
             sp.edit().putBoolean("no_auto_bright", on).apply();
             Brightness.forceManual(this, sp);
         }));
-
-        box.addView(dialogButton("Cobrir a barra de baixo: " + (CrtAccessService.instance != null ? "ativa" : "ativar"),
+        put(box, cat, 0, dialogButton("Cobrir a barra de baixo: " + (CrtAccessService.instance != null ? "ativa" : "ativar"),
                 v -> startActivity(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))));
-        box.addView(dialogButton("Controle de brilho: " + (Settings.System.canWrite(this) ? "permitido" : "permitir"),
+        put(box, cat, 0, dialogButton("Controle de brilho: " + (Settings.System.canWrite(this) ? "permitido" : "permitir"),
                 v -> startActivity(new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS, Uri.parse("package:" + getPackageName())))));
-        box.addView(dialogButton("Pasta de músicas: " + folderName(), v -> pickMusicFolder()));
-        box.addView(dialogButton("Cidade do clima: " + sp.getString("wx_name", "não definida"), v -> askCity()));
-        box.addView(dialogButton("Limpar a RAM agora", v -> cleanRam()));
-        box.addView(dialogButton("Parar todos os apps (força parada)", v -> confirmForceStopAll()));
-        box.addView(dialogButton("Esconder a notificação (abre as configurações)", v -> openNotificationSettings()));
+        put(box, cat, 3, dialogButton("Pasta de músicas: " + folderName(), v -> pickMusicFolder()));
+        put(box, cat, 4, dialogButton("Cidade do clima: " + sp.getString("wx_name", "não definida"), v -> askCity()));
+        put(box, cat, 4, dialogButton("Limpar a RAM agora", v -> cleanRam()));
+        put(box, cat, 4, dialogButton("Parar todos os apps (força parada)", v -> confirmForceStopAll()));
+        put(box, cat, 4, dialogButton("Esconder a notificação (abre as configurações)", v -> openNotificationSettings()));
+        put(box, cat, 4, dialogButton("Registro de mudanças (logs) e versão", v -> showLogs()));
 
         ScrollView sv = new ScrollView(this);
         sv.addView(box);
         new AlertDialog.Builder(this)
-                .setTitle("Opções")
+                .setTitle(DRAWER_NAMES[cat])
                 .setView(sv)
                 .setPositiveButton("Fechar", null)
+                .setNeutralButton("◀ Gavetas", (dlg, w) -> showOptions(-1))
                 .setOnDismissListener(dlg -> refresh())
                 .show();
     }
+
 
     /** Pede a permissão de áudio do analisador de espectro (ela só serve pra ler o espectro da música). */
     private void askAudio() {
@@ -711,6 +781,44 @@ public class MainActivity extends Activity {
     private static final String[] COLOR_NAMES = {"Vermelho", "Azul", "Dourado", "Verde escuro", "Roxo", "Laranja", "Preto", "Marrom"};
     private static final int[] COLOR_VALUES = {0xFFC00018, 0xFF0A3CA8, 0xFF9A6A00, 0xFF0B5D1E, 0xFF6A1B9A, 0xFFD35400, 0xFF111111, 0xFF6D4C41};
 
+    private interface ColorPick { void pick(int color); }
+
+    /** Paleta com 68 cores (12 matizes x 5 tons + 8 cinzas) para escolher a cor de cada fala. */
+    private void showColorGrid(String title, ColorPick cb) {
+        final java.util.List<Integer> cols = new java.util.ArrayList<>();
+        float[] light = {0.28f, 0.42f, 0.58f, 0.74f, 0.88f};
+        for (int h = 0; h < 12; h++) for (float l : light) cols.add(android.graphics.Color.HSVToColor(new float[]{h * 30f, l > 0.7f ? 0.45f : 0.9f, l > 0.7f ? 1f : l + 0.35f}));
+        for (int g = 0; g < 8; g++) { int v = Math.round(g * 255 / 7f); cols.add(android.graphics.Color.rgb(v, v, v)); }
+        final AlertDialog[] dlg = new AlertDialog[1];
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        int pad = Math.round(8 * dens), sz = Math.round(40 * dens);
+        col.setPadding(pad, pad, pad, pad);
+        LinearLayout row = null;
+        for (int i = 0; i < cols.size(); i++) {
+            if (i % 8 == 0) {
+                row = new LinearLayout(this);
+                row.setOrientation(LinearLayout.HORIZONTAL);
+                col.addView(row);
+            }
+            final int color = cols.get(i);
+            View sw = new View(this);
+            android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
+            gd.setColor(color);
+            gd.setCornerRadius(8 * dens);
+            gd.setStroke(Math.round(1.5f * dens), 0x66FFFFFF);
+            sw.setBackground(gd);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(sz, sz);
+            lp.setMargins(pad / 2, pad / 2, pad / 2, pad / 2);
+            sw.setOnClickListener(v -> { cb.pick(color); if (dlg[0] != null) dlg[0].dismiss(); });
+            row.addView(sw, lp);
+        }
+        ScrollView sv = new ScrollView(this);
+        sv.addView(col);
+        dlg[0] = new AlertDialog.Builder(this).setTitle(title).setView(sv).setNegativeButton("Cancelar", null).create();
+        dlg[0].show();
+    }
+
     private void showSpeechColors() {
         String[] items = new String[SPEAKERS.length + 1];
         for (int i = 0; i < SPEAKERS.length; i++) items[i] = SPEAKERS[i];
@@ -722,8 +830,7 @@ public class MainActivity extends Activity {
                 e.apply();
                 return;
             }
-            new AlertDialog.Builder(this).setTitle(SPEAKERS[which]).setItems(COLOR_NAMES, (d2, c) ->
-                    sp.edit().putInt(SPEAKER_KEYS[which], COLOR_VALUES[c]).apply()).show();
+            showColorGrid(SPEAKERS[which], color -> sp.edit().putInt(SPEAKER_KEYS[which], color).apply());
         }).show();
     }
 

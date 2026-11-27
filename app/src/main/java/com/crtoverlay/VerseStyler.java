@@ -17,7 +17,7 @@ final class VerseStyler {
     private static final String VERBS = "disse|diz|dizia|falou|fala|respondeu|responde|perguntou|pergunta|ordenou|ordena|gritou|exclamou|declarou|replicou|prometeu|mandou|chamou|ensinou|orou|clamou|continuou|acrescentou|advertiu|explicou|prosseguiu|anunciou|profetizou|insistiu|repetiu|aconselhou|rezou|cantou";
     private static final String L = "\\p{L}";
 
-    private static final Pattern LEAD = Pattern.compile("^\\s*(?:(?:Então|Aí|Mas|Porém|Depois|Nisso|Logo|Também|Ainda|Assim|E|Em seguida|Por isso|Nesse momento),?\\s+)+", Pattern.CASE_INSENSITIVE);
+    private static final Pattern LEAD = Pattern.compile("^\\s*(?:(?:Então|Aí|Mas|Porém|Depois|Nisso|Logo|Também|Ainda|Assim|E|Em seguida|Por isso|Nesse momento|Pois|Porque|Ora|Agora),?\\s+)+", Pattern.CASE_INSENSITIVE);
     private static final Pattern ART = Pattern.compile("^(?:o|a)\\s+", Pattern.CASE_INSENSITIVE);
     private static final String GODN = "Elohim|Yahuah|Yah|Todo-Poderoso";
     private static final String JESN = "Yahusha|Messias|Cristo";
@@ -49,6 +49,7 @@ final class VerseStyler {
             int color = s[2] >= 0 ? colors[s[2]] : (others ? colors[4] : 0);
             if (color != 0) out.add(new int[]{s[0], s[1], color});
         }
+        for (int[] q : quotes(v, idx)) out.add(new int[]{q[0], q[1], colors[q[2]]});     // “...” que Elohim/Yahusha disseram
         if (names) {
             String t = v.text(idx);
             boolean nt = v.isNewTestament(v.bookOf(idx));
@@ -57,6 +58,39 @@ final class VerseStyler {
                 int who = cat(m.group(), nt);
                 if (who >= 0) out.add(new int[]{m.start(), m.end(), colors[who]});
             }
+        }
+        return out;
+    }
+
+    private static final Pattern QUOTE = Pattern.compile("\u201C([^\u201D]*)\u201D");
+    private static final Pattern CONT_INTRO = Pattern.compile("^(?:E|Também)?\\s*(?:disse|diz|falou)(?:\\s+também)?\\s*:?\\s*$", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * Citações entre aspas: se a frase antes diz "Elohim disse:" (ou Yahusha, Moisés...), o que está entre aspas
+     * fica na cor de QUEM falou, mesmo que quem esteja contando seja outra pessoa. "E disse também:" continua o mesmo.
+     */
+    private static List<int[]> quotes(Verses v, int idx) {
+        List<int[]> out = new ArrayList<>();
+        String t = v.text(idx);
+        if (t.indexOf('\u201C') < 0) return out;
+        boolean nt = v.isNewTestament(v.bookOf(idx));
+        Matcher m = QUOTE.matcher(t);
+        int prevEnd = 0, lastWho = NONE;
+        while (m.find()) {
+            String before = t.substring(prevEnd, m.start()).trim();
+            String[] sents = SENT.split(before);
+            String clause = sents.length == 0 ? "" : sents[sents.length - 1].trim();
+            int who = NONE;
+            if (!clause.isEmpty() && clause.endsWith(":")) {
+                if (CONT_INTRO.matcher(clause).find()) who = lastWho;
+                else if (cleanTail(clause)) {
+                    int k = subjSentence(clause, nt);
+                    if (k != PRON) who = k;
+                }
+            }
+            if (who >= 0) out.add(new int[]{m.start(), m.end(), who});
+            lastWho = who;
+            prevEnd = m.end();
         }
         return out;
     }
