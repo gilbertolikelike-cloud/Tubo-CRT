@@ -50,7 +50,7 @@ final class BookView extends View {
     private void run(int prio, Runnable r) {
         try { exec.execute(new PTask(prio, r)); } catch (RuntimeException ignored) { /* fechado */ }
     }
-    private final LruCache<String, Bitmap> cache = new LruCache<String, Bitmap>(56 * 1024 * 1024) {
+    private final LruCache<String, Bitmap> cache = new LruCache<String, Bitmap>(80 * 1024 * 1024) {
         @Override protected int sizeOf(String key, Bitmap b) { return b.getByteCount(); }
     };
     private final HashSet<String> pending = new HashSet<>();
@@ -81,6 +81,16 @@ final class BookView extends View {
     BookView(Context c) {
         super(c);
         pinch = new android.view.ScaleGestureDetector(c, new android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            @Override public boolean onScaleBegin(android.view.ScaleGestureDetector d) {
+                scaling = true;
+                return true;
+            }
+
+            @Override public void onScaleEnd(android.view.ScaleGestureDetector d) {
+                scaling = false;
+                invalidate();                                                    // agora pede a página nítida
+            }
+
             @Override public boolean onScale(android.view.ScaleGestureDetector d) {
                 zoom = Math.max(1f, Math.min(5f, zoom * d.getScaleFactor()));    // pinça com os dedos
                 if (zoom <= 1.01f) { zoom = 1f; panX = 0f; panY = 0f; }
@@ -203,15 +213,44 @@ final class BookView extends View {
     }
 
     // ---------- páginas ----------
-    private Bitmap bitmapFor(int page, float rectW) {
-        int need = Math.min(zoom > 1.6f ? 2200 : 1800, ((int) rectW + 99) / 100 * 100);
-        needW = need;
-        Bitmap b = cache.get(page + "@" + need);
+    // Larguras fixas (em vez de uma por zoom): na pinça o zoom muda a cada quadro e antes isso enchia o cache de
+    // páginas quase iguais, expulsava as boas e a página ficava PRETA até a nova chegar.
+    private static final int[] LEVELS = {500, 900, 1400, 1900, 2400};
+    private boolean scaling;
+
+    private int levelFor(float rectW) {
+        int cap = (!two && zoom > 1.6f) ? 2400 : 1900;   // em duas páginas o limite é menor (cada página pesa ~20 MB)
+        int pick = LEVELS[0];
+        for (int l : LEVELS) {
+            if (l > cap) break;
+            pick = l;
+            if (l >= rectW) break;
+        }
+        return pick;
+    }
+
+    /** Qualquer versão que já exista da página, a mais parecida com a pedida (maiores primeiro). */
+    private Bitmap nearest(int page, int level) {
+        Bitmap b = cache.get(page + "@" + level);
         if (b != null) return b;
-        Integer best = bestWidth.get(page); // enquanto a nítida não chega, mostra a que já tinha
-        if (best == null) request(page, 500); // 1º uma versão rápida (aparece quase na hora)
-        if (need > 500) request(page, need);
-        return best != null ? cache.get(page + "@" + best) : null;
+        int idx = 0;
+        for (int i = 0; i < LEVELS.length; i++) if (LEVELS[i] == level) idx = i;
+        for (int dist = 1; dist < LEVELS.length; dist++) {
+            if (idx + dist < LEVELS.length) { b = cache.get(page + "@" + LEVELS[idx + dist]); if (b != null) return b; }
+            if (idx - dist >= 0) { b = cache.get(page + "@" + LEVELS[idx - dist]); if (b != null) return b; }
+        }
+        return null;
+    }
+
+    private Bitmap bitmapFor(int page, float rectW) {
+        int need = levelFor(rectW);
+        needW = need;
+        Bitmap exact = cache.get(page + "@" + need);
+        if (exact != null) return exact;
+        Bitmap any = nearest(page, need);              // enquanto a nítida não chega, mostra a que já tinha
+        if (any == null) request(page, 500);            // 1º uma versão rápida (aparece quase na hora)
+        if (!scaling && need > 500) request(page, need); // durante a pinça não pede páginas pesadas; pede quando soltar
+        return any;
     }
 
     private void request(final int page, final int width) {
@@ -248,7 +287,7 @@ final class BookView extends View {
     }
 
     private void prefetch() {
-        int w = Math.max(needW, 900);
+        int w = Math.max(needW, 900);   // sempre um dos tamanhos fixos
         for (int pg = left; pg <= left + 5; pg++) if (pg >= 0 && pg < pageCount) request(pg, 500);
         if (left - 1 >= 0) request(left - 1, 500);
         for (int pg = left; pg <= left + 3; pg++) if (pg >= 0 && pg < pageCount) request(pg, w);

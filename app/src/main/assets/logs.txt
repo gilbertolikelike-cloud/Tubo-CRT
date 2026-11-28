@@ -210,3 +210,6 @@ Atualização 17 (versionCode 22)
 - Estante de PDFs com abas "Livros (N)" e "Pastas (N)": a aba Pastas navega como a lista da TV (entra na pasta, subpastas, PDFs, botão ◀ Voltar, tecla voltar do celular sobe um nível; "PDFs avulsos" vira uma pasta).
 - Leitor de PDF: zoom com os dedos (pinça, até 5x; render até 2200 px quando o zoom passa de 1,6x), arrastar com 1 dedo move a página ampliada, 2 dedos não viram a página.
 - FALTA: desenhos nos controles da TV (anterior, tocar, próximo, tela cheia, fechar, lista) e lupa de tela.
+
+Atualização 18 (versionCode 23)
+- Vídeo do Gilberto (27/11, leitor de PDF): ao dar zoom com os dedos a página ficava PRETA por instantes. Causa: a cada quadro da pinça o app pedia uma largura nova de render, enchia o cache e expulsava a versão boa. Correção: larguras fixas (500/900/1400/1900/2400), mostra sempre a versão mais parecida que já existe, não pede página pesada durante a pinça (pede ao soltar), limite 1900 em duas páginas e 2400 em uma, cache 80 MB.
